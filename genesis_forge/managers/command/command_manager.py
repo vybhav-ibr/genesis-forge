@@ -133,13 +133,29 @@ class CommandManager(BaseManager):
     Operations
     """
 
-    def get_command(self, key: str) -> torch.Tensor:
+    def get_command(self, range_key: str) -> torch.Tensor:
         """
         If the range is a dict, get the command values for the given key.
         """
         if not isinstance(self._range, dict):
             raise ValueError("The range is not a dict")
-        return self._command[:, self._range_idx[key]]
+        return self._command[:, self._range_idx[range_key]]
+
+    def set_command(
+        self,
+        range_key: str,
+        value: torch.Tensor,
+        envs_idx: list[int] | None = None,
+    ):
+        """
+        Update a command value for selected environments.
+        """
+        if not isinstance(self._range, dict):
+            raise ValueError("The range is not a dict")
+        if envs_idx is None:
+            self._command[:, self._range_idx[range_key]] = value
+        else:
+            self._command[envs_idx, self._range_idx[range_key]] = value
 
     def get_command_idx(self, key: str) -> int:
         """

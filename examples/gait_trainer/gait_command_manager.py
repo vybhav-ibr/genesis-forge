@@ -14,7 +14,6 @@ from genesis_forge.gamepads import Gamepad
 
 GAIT_PERIOD_RANGE = [0.3, 0.6]
 FOOT_CLEARANCE_RANGE = [0.04, 0.12]
-CURRICULUM_CHECK_EVERY_STEPS = 500
 
 GaitName = Literal["walk", "trot", "pronk", "pace", "bound", "canter"]
 FootName = Literal["FL", "FR", "RL", "RR"]

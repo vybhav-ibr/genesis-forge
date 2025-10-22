@@ -218,7 +218,6 @@ class randomize_terrain_position(ResetMdpFnClass):
             subterrain=subterrain,
             height_offset=height_offset,
         )
-        print(f"Pos: {pos.shape}, envs: {len(envs_idx)}")
         entity.set_pos(pos, envs_idx=envs_idx, zero_velocity=zero_velocity)
 
         # Rotation

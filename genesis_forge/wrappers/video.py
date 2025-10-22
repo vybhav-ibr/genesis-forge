@@ -1,11 +1,14 @@
+from __future__ import annotations
+
 import os
 import math
 import torch
-from typing import Tuple, Any, Callable, Literal
-
-from genesis.vis.camera import Camera
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.wrappers.wrapper import Wrapper
+from typing import Tuple, Any, Callable, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.vis.camera import Camera
 
 RecordingType = Literal["active", "background"]
 

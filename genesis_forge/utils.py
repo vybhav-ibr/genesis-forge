@@ -1,13 +1,17 @@
+from __future__ import annotations
+
 import re
 import torch
 import genesis as gs
-from genesis.engine.entities import RigidEntity
-from genesis.engine.entities.rigid_entity.rigid_link import RigidLink
-
 from genesis.utils.geom import (
     transform_by_quat,
     inv_quat,
 )
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
+    from genesis.engine.entities.rigid_entity.rigid_link import RigidLink
 
 
 def entity_lin_vel(entity: RigidEntity) -> torch.Tensor:

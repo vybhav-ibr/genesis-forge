@@ -3,10 +3,10 @@ Reward functions for the Genesis Forge environment.
 Each of these should return a float tensor with the reward value for each environment, in the shape (num_envs,).
 """
 
+from __future__ import annotations
+
 import torch
-from typing import Union
 import genesis as gs
-from genesis.engine.entities import RigidEntity
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers import (
     CommandManager,
@@ -16,12 +16,13 @@ from genesis_forge.managers import (
     TerrainManager,
     EntityManager,
 )
-from genesis.utils.geom import (
-    transform_by_quat,
-    inv_quat,
-)
 from genesis_forge.utils import entity_lin_vel, entity_ang_vel, entity_projected_gravity
 from genesis_forge.managers import MdpFnClass
+from typing import Union, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
+
 
 """
 Aliveness
@@ -447,7 +448,7 @@ def feet_air_time(
         env: The Genesis Forge environment
         contact_manager: The contact manager to check for contact
         time_threshold: The minimum time (in seconds) the feet should be in the air
-        time_threshold_max: (optional) The maximum time (in seconds) the feet should be in the air. 
+        time_threshold_max: (optional) The maximum time (in seconds) the feet should be in the air.
                             If the time is greater than this value, then the reward is zero.
         vel_cmd_manager: The velocity command manager
 
@@ -458,7 +459,7 @@ def feet_air_time(
     last_air_time = contact_manager.last_air_time
 
     # Calculate the air time
-    air_time =(last_air_time - time_threshold) * made_contact
+    air_time = (last_air_time - time_threshold) * made_contact
     if time_threshold_max is not None:
         air_time = torch.clamp(air_time, max=time_threshold_max - time_threshold)
     reward = torch.sum(air_time, dim=1)

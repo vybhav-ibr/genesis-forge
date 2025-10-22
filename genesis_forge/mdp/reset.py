@@ -1,16 +1,20 @@
+from __future__ import annotations
+
 import torch
 import math
 import genesis as gs
-from typing import Literal, Callable
 from genesis.utils.geom import (
     xyz_to_quat,
 )
-
-from genesis.engine.entities import RigidEntity
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers.terrain_manager import TerrainManager
 from genesis_forge.utils import links_by_name_pattern
 from genesis_forge.managers import ResetMdpFnClass
+from typing import Literal, Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
+
 
 XYZRotation = dict[Literal["x", "y", "z"], float | tuple[float, float]]
 """
@@ -214,6 +218,7 @@ class randomize_terrain_position(ResetMdpFnClass):
             subterrain=subterrain,
             height_offset=height_offset,
         )
+        print(f"Pos: {pos.shape}, envs: {len(envs_idx)}")
         entity.set_pos(pos, envs_idx=envs_idx, zero_velocity=zero_velocity)
 
         # Rotation

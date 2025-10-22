@@ -1,5 +1,11 @@
+from __future__ import annotations
+
 from genesis_forge.genesis_env import GenesisEnv
-from genesis.engine.entities import RigidEntity
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
 
 
 class MdpFnClass:

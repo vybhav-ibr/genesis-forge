@@ -1,7 +1,8 @@
+from __future__ import annotations
+
 import re
 import torch
 import genesis as gs
-from genesis.engine.entities import RigidEntity
 
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers.base import BaseManager
@@ -10,6 +11,11 @@ from genesis_forge.managers.contact.config import (
     DEFAULT_VISUALIZER_CONFIG,
 )
 from genesis_forge.managers.contact.kernel import kernel_get_contact_forces
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
 
 
 class ContactManager(BaseManager):

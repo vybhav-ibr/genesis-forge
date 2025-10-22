@@ -3,7 +3,7 @@ from typing import Any, TypedDict
 from gymnasium import spaces
 import genesis as gs
 from tensordict import TensorDict
-from genesis_forge.genesis_env import GenesisEnv, EnvMode
+from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers.base import BaseManager, ManagerType
 from genesis_forge.managers import (
     ContactManager,

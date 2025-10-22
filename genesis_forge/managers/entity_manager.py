@@ -1,17 +1,21 @@
+from __future__ import annotations
+
 import torch
 import genesis as gs
-from typing import TypedDict, Callable, Any
-
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers.base import BaseManager
-from genesis.engine.entities import RigidEntity
 from genesis.utils.geom import (
     transform_by_quat,
     inv_quat,
 )
 from genesis_forge.managers.config import ConfigItem, ResetMdpFnClass
 
-ResetConfigFn = Callable[[GenesisEnv, RigidEntity, list[int], ...], None]
+from typing import TypedDict, Callable, Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
+
+    ResetConfigFn = Callable[[GenesisEnv, RigidEntity, list[int], ...], None]
 
 
 class EntityResetConfig(TypedDict):

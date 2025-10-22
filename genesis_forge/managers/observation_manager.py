@@ -1,10 +1,8 @@
-import re
 import torch
 import numpy as np
 from gymnasium import spaces
 import genesis as gs
-from typing import TypedDict, Tuple, Callable, Any
-from genesis.engine.entities import RigidEntity
+from typing import TypedDict, Callable, Any
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers.base import BaseManager
 from genesis_forge.managers.config import ObservationConfigItem

@@ -4,7 +4,6 @@ from "Sim-to-Real Learning of All Common Bipedal Gaits via Periodic Reward Compo
 """
 
 import torch
-import random
 import genesis as gs
 from typing import TypedDict, Literal
 from genesis.engine.entities import RigidEntity
@@ -31,10 +30,10 @@ GAIT_OFFSETS: dict[GaitName, dict[FootName, float]] = {
     #     "RR": 0.25,
     # },
     "trot": {
-        "FL": 0.0, # Front-left foot
+        "FL": 0.0,  # Front-left foot
         "FR": 0.5,
         "RL": 0.5,
-        "RR": 0.0, # Rear-right foot
+        "RR": 0.0,  # Rear-right foot
     },
     "pace": {
         "FL": 0.5,
@@ -121,7 +120,9 @@ class GaitCommandManager(CommandManager):
             dtype=torch.float,
             device=gs.device,
         )
-        self._gait_selected = torch.zeros(env.num_envs, dtype=torch.long, device=gs.device)
+        self._gait_selected = torch.zeros(
+            env.num_envs, dtype=torch.long, device=gs.device
+        )
 
     @property
     def command(self) -> torch.Tensor:
@@ -149,7 +150,7 @@ class GaitCommandManager(CommandManager):
         """
         if self._all_gaits_learned:
             return
-        
+
         # All gaits have now been mastered
         if self._num_gaits == len(GAIT_OFFSETS):
             self._all_gaits_learned = True
@@ -194,8 +195,8 @@ class GaitCommandManager(CommandManager):
         # Convert env_ids to tensor if it's a list
         if isinstance(env_ids, list):
             env_ids = torch.tensor(env_ids, device=gs.device, dtype=torch.long)
-        
-        gait_names = list(GAIT_OFFSETS.keys())[:self._num_gaits]
+
+        gait_names = list(GAIT_OFFSETS.keys())[: self._num_gaits]
         if self._num_gaits == 1:
             # Only one gait available - set all to the same gait
             self._set_gait(gait_names[0], env_ids)
@@ -343,16 +344,16 @@ class GaitCommandManager(CommandManager):
         vel_weight[stance_indices, :] = -1  # speed is penalized during stance phase
 
         return vel_weight * velocity + force_weight * force
-    
+
     def _set_gait(self, gait_name: GaitName, env_ids: torch.Tensor | None = None):
         """
         Set the gait for a batch of environments
         """
         if env_ids is None:
             env_ids = torch.arange(self.env.num_envs, device=gs.device)
-            
+
         gait_offsets = GAIT_OFFSETS[gait_name]
-        
+
         # Define the foot offsets for the selected gait (vectorized assignment)
         self.foot_offset[env_ids, 0] = gait_offsets["FL"]
         self.foot_offset[env_ids, 1] = gait_offsets["FR"]
@@ -372,14 +373,14 @@ class GaitCommandManager(CommandManager):
         self.gait_period[env_ids, 0] = torch.empty(
             len(env_ids), device=gs.device
         ).uniform_(*self._gait_period_range)
-    
+
     def _generate_random_gait_indices(self, num: int) -> torch.Tensor:
         """
         Pick a list of random gait indices, with the most recent gaits having a higher probability of
         being picked.
         If self._all_gaits_learned is True, all gaits are equally weighted.
         """
-        
+
         if not self._all_gaits_learned:
             # If we haven't learned all gaits yet, weight the recent gaits exponentially higher
             weights = torch.arange(self._num_gaits, device=gs.device).exp()
@@ -389,7 +390,7 @@ class GaitCommandManager(CommandManager):
 
         # Normalize: the sum of all weights should be 1
         weights /= weights.sum()
-        weights = weights[:self._num_gaits].expand(num, -1)
+        weights = weights[: self._num_gaits].expand(num, -1)
 
         return torch.multinomial(weights, 1).squeeze(-1)
 
@@ -404,14 +405,14 @@ class GaitCommandManager(CommandManager):
             self._gamepad_gait_idx = (self._gamepad_gait_idx + 1) % self._num_gaits
             gait_name = list(GAIT_OFFSETS.keys())[self._gamepad_gait_idx]
             self._gamepad_select_gait(gait_name)
-    
+
     def _gamepad_select_gait(self, gait_name: GaitName):
         """
         Select a new gait when the A button is pressed.
         """
         print(f"💃 Selecting gait: {gait_name}")
         env_idx = 0
-            
+
         # Define the foot offsets for the selected gait (vectorized assignment)
         gait_offsets = GAIT_OFFSETS[gait_name]
         self.foot_offset[env_idx, 0] = gait_offsets["FL"]
@@ -430,12 +431,16 @@ class GaitCommandManager(CommandManager):
         # Gait period
         mid_gait_period = (GAIT_PERIOD_RANGE[0] + GAIT_PERIOD_RANGE[1]) / 2
         self.gait_period[env_idx, 0] = mid_gait_period
-    
+
     def _log_metrics(self):
-        self.env.extras[self.env.extras_logging_key]["Metrics / num_gaits"] = self._num_gaits
-        
+        self.env.extras[self.env.extras_logging_key][
+            "Metrics / num_gaits"
+        ] = self._num_gaits
+
         # Log gait distribution if multiple gaits are active
         gait_names = list(GAIT_OFFSETS.keys())
         for i, gait_name in enumerate(gait_names):
             count = (self._gait_selected == i).sum()
-            self.env.extras[self.env.extras_logging_key][f"Metrics / gait_{gait_name}_envs"] = count
+            self.env.extras[self.env.extras_logging_key][
+                f"Metrics / gait_{gait_name}_envs"
+            ] = count

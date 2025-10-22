@@ -1,12 +1,16 @@
+from __future__ import annotations
 import torch
 from genesis_forge.genesis_env import GenesisEnv
-from genesis.engine.entities import RigidEntity
 from genesis_forge.managers import (
     PositionActionManager,
     EntityManager,
     ContactManager,
 )
 from genesis_forge.utils import entity_lin_vel, entity_ang_vel, entity_projected_gravity
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
 
 """
 Entity Observations

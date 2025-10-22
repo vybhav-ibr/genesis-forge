@@ -2,10 +2,13 @@ from __future__ import annotations
 import torch
 import torch.nn.functional as F
 import genesis as gs
-from genesis.engine.entities import RigidEntity
-
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers import BaseManager
+
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
 
 
 class TerrainManager(BaseManager):
@@ -89,7 +92,9 @@ class TerrainManager(BaseManager):
         self._terrain = self.env.__getattribute__(self._terrain_attr)
         self._map_terrain()
 
-    def get_bounds(self, subterrain: str | None = None) -> tuple[float, float, float, float]:
+    def get_bounds(
+        self, subterrain: str | None = None
+    ) -> tuple[float, float, float, float]:
         """
         Get the bounds of the terrain, or subterrain
         """

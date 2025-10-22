@@ -3,8 +3,10 @@ import math
 import torch
 import genesis as gs
 from gymnasium import spaces
-from genesis.engine.entities import RigidEntity
-from typing import Any, Literal
+from typing import Any, Literal, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from genesis.engine.entities import RigidEntity
 
 EnvMode = Literal["train", "eval", "play"]
 
@@ -137,7 +139,7 @@ class GenesisEnv:
         if self.observation_space is not None:
             return self.observation_space.shape[0]
         return 0
-    
+
     @property
     def max_episode_length_steps(self) -> int | None:
         """
@@ -245,8 +247,13 @@ class GenesisEnv:
             and self._max_episode_random_scaling > 0.0
             and self._base_max_episode_length is not None
         ):
-            max_random_scaling = self._base_max_episode_length * self._max_episode_random_scaling
-            randomization = torch.empty((envs_idx.numel(),)).uniform_(-1.0, 1.0) * max_random_scaling 
+            max_random_scaling = (
+                self._base_max_episode_length * self._max_episode_random_scaling
+            )
+            randomization = (
+                torch.empty((envs_idx.numel(),)).uniform_(-1.0, 1.0)
+                * max_random_scaling
+            )
             self.max_episode_length[envs_idx] = torch.round(
                 self._base_max_episode_length + randomization
             ).to(gs.tc_int)

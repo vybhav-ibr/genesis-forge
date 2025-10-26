@@ -304,6 +304,7 @@ class GaitCommandManager(CommandManager):
         quad_reward = fl.flatten() + fr.flatten() + rl.flatten() + rr.flatten()
         return torch.exp(quad_reward)
 
+
     """
     Private methods
     """
@@ -329,18 +330,20 @@ class GaitCommandManager(CommandManager):
         velocity = torch.norm(link.get_vel(), dim=-1).view(-1, 1)
 
         # Phase
-        phi = (self.gait_phase + self.foot_offset[:, foot_idx].unsqueeze(1)) % 1.0
-        phi *= 2 * torch.pi
+        phase = (self.gait_phase + self.foot_offset[:, foot_idx].unsqueeze(1)) % 1.0
 
-        swing_indices = (phi >= 0.0) & (phi < torch.pi)
-        swing_indices = swing_indices.nonzero().flatten()
-        stance_indices = (phi >= torch.pi) & (phi < 2 * torch.pi)
-        stance_indices = stance_indices.nonzero().flatten()
+        # Phase is in range [0, 1]. Split 50/50 between swing and stance.
+        # Swing: [0, 0.5), Stance: [0.5, 1.0]
+        swing_indices = phase < 0.5
+        stance_indices = phase >= 0.5
 
-        force_weight[swing_indices, :] = -1  # force is penalized during swing phase
-        vel_weight[swing_indices, :] = 0  # speed is not penalized during swing phase
-        force_weight[stance_indices, :] = 0  # force is not penalized during stance
-        vel_weight[stance_indices, :] = -1  # speed is penalized during stance phase
+        # During swing: penalize ground contact force (want foot in air)
+        force_weight[swing_indices] = -1.0
+        vel_weight[swing_indices] = 0.0
+
+        # During stance: penalize foot velocity (want foot planted on ground)
+        force_weight[stance_indices] = 0.0
+        vel_weight[stance_indices] = -1.0
 
         return vel_weight * velocity + force_weight * force
 

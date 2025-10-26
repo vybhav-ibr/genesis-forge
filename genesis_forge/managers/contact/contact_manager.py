@@ -266,7 +266,7 @@ class ContactManager(BaseManager):
         Get the contact forces for a link
 
         Args:
-            link_idx: The name of the link to get the contact forces for.
+            link_idx: The link index to get the contact forces for.
 
         Returns:
             The contact forces for the target links. Shape is (n_envs, n_target_links, 3)

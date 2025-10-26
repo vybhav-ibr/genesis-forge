@@ -6,7 +6,7 @@ build-backend = "hatchling.build"
 name = "genesis-forge"
 version = "0.2.2"
 authors = [{ name = "Jeremy Gillick" }]
-description = "A robotics RL training frameworks for Genesis inspired by Isaac Lab and Gymnasium."
+description = "A robotics RL training framework for Genesis inspired by Isaac Lab and Gymnasium."
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [

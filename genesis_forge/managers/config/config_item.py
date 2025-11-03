@@ -101,6 +101,43 @@ class RewardConfigItem(ConfigItem):
     def __init__(self, cfg: dict, env: GenesisEnv):
         super().__init__(cfg, env)
         self.weight = cfg.get("weight", 0.0)
+    
+    def increment_weight(self, increment: float, limit: float = None):
+        """
+        Increment the weight value by the given amount.
+
+        Args:
+            increment: The amount to increment the weight by (+/-).
+            limit: Do not set the value beyond this limit.
+        """
+        value = self.weight 
+        value += increment
+        if limit is not None:
+            if increment > 0:
+                value = min(value, limit)
+            else:
+                value = max(value, limit)
+        self.weight = value
+        return value
+    
+    def increment_param(self, param: str, increment: float, limit: float = None):
+        """
+        Increment a float parameter value by the given amount.
+
+        Args:
+            param: The parameter to increment.
+            increment: The amount to increment the parameter by (+/-).
+            limit: Do not set the value beyond this limit.
+        """
+        value = self.params[param]
+        value += increment
+        if limit is not None:
+            if increment > 0:
+                value = min(value, limit)
+            else:
+                value = max(value, limit)
+        self.params[param] = value
+        return value
 
 
 class ObservationConfigItem(ConfigItem):

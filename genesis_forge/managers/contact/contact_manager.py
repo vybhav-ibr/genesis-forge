@@ -261,17 +261,21 @@ class ContactManager(BaseManager):
         less_than_dt_detached = self.current_air_time < (dt + time_margin)
         return currently_detached * less_than_dt_detached
 
-    def get_contact_forces(self, link_idx: int) -> torch.Tensor:
+    def get_contact_forces(self, link_idx: int | list[int]) -> torch.Tensor:
         """
-        Get the contact forces for a link
+        Get the contact forces for one or more links
 
         Args:
-            link_idx: The link index to get the contact forces for.
+            link_idx: The link index or list of link indices to get the contact forces for.
 
         Returns:
             The contact forces for the target links. Shape is (n_envs, n_target_links, 3)
         """
-        idx = torch.nonzero(self._link_ids == link_idx)[0]
+        idx = []
+        if isinstance(link_idx, int):
+            idx = torch.nonzero(self._link_ids == link_idx)[0]
+        elif isinstance(link_idx, list):
+            idx = [torch.nonzero(self._link_ids == i)[0].item() for i in link_idx]
         return self.contacts[:, idx, :]
 
     """

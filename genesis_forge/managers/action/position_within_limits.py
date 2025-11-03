@@ -24,7 +24,6 @@ class PositionWithinLimitsActionManager(PositionActionManager):
         action_handler: A function to handle the actions.
         quiet_action_errors: Whether to quiet action errors.
         randomization_cfg: The randomization configuration used to randomize the DOF values across all environments and between resets.
-        resample_randomization_s: The time interval to resample the randomization values.
         delay_step: The number of steps to delay the actions for.
                     This is an easy way to emulate the latency in the system.
 

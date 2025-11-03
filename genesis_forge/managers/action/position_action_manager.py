@@ -64,6 +64,7 @@ class PositionActionManager(BaseActionManager):
         damping: The damping values.
         stiffness: The stiffness values.
         frictionloss: The frictionloss values.
+        noise_scale: The scale of the random noise to add to the actuator settings (kp, kv, damping, etc) at reset.
         reset_random_scale: Scale all DOF values on reset by this amount +/-.
         quiet_action_errors: Whether to quiet action errors.
         randomization_cfg: The randomization configuration used to randomize the DOF values across all environments and between resets.

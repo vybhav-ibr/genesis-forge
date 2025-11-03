@@ -449,7 +449,7 @@ def feet_air_time(
         contact_manager: The contact manager to check for contact
         time_threshold: The minimum time (in seconds) the feet should be in the air
         time_threshold_max: (optional) The maximum time (in seconds) the feet should be in the air.
-                            If the time is greater than this value, then the reward is zero.
+                            The reward will be capped at this value.
         vel_cmd_manager: The velocity command manager
 
     Returns:

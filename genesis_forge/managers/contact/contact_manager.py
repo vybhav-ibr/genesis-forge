@@ -279,7 +279,7 @@ class ContactManager(BaseManager):
         return self.contacts[:, idx, :]
 
     """
-    Operations
+    Lifecycle Operations
     """
 
     def build(self):
@@ -346,7 +346,7 @@ class ContactManager(BaseManager):
         self._calculate_air_time()
 
     """
-    Implementation
+    Internal Implementation
     """
 
     def _get_links_idx(

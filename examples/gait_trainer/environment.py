@@ -7,6 +7,7 @@ from genesis_forge.managers import (
     TerminationManager,
     EntityManager,
     ObservationManager,
+    ActuatorManager,
     PositionActionManager,
     VelocityCommandManager,
     ContactManager,
@@ -113,7 +114,7 @@ class Go2GaitTrainingEnv(ManagedEnvironment):
 
         ##
         # Joint Actions
-        self.action_manager = PositionActionManager(
+        self.actuator_manager = ActuatorManager(
             self,
             joint_names=[
                 "FL_.*_joint",
@@ -129,10 +130,14 @@ class Go2GaitTrainingEnv(ManagedEnvironment):
                 "RR_thigh_joint": 1.0,
                 ".*_calf_joint": -1.5,
             },
+            kp=20,
+            kv=0.5,
+        )
+        self.action_manager = PositionActionManager(
+            self,
             scale=0.25,
             use_default_offset=True,
-            pd_kp=20,
-            pd_kv=0.5,
+            actuator_manager=self.actuator_manager,
         )
 
         ##

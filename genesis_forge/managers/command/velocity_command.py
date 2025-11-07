@@ -142,18 +142,41 @@ class VelocityCommandManager(CommandManager):
         self.standing_probability = standing_probability
         self.debug_visualizer = debug_visualizer
         self.visualizer_cfg = {**DEFAULT_VISUALIZER_CONFIG, **debug_visualizer_cfg}
+        self.debug_envs_idx = None
 
         self._is_standing_env = torch.zeros(
             env.num_envs, dtype=torch.bool, device=gs.device
         )
 
     """
-    Properties
+    Lifecycle Operations
     """
 
-    """
-    Operations
-    """
+    def resample_command(self, env_ids: list[int]):
+        """
+        Overwrites commands for environments that should be standing still.
+        """
+        super().resample_command(env_ids)
+        if not self.enabled:
+            return
+
+        num = torch.empty(len(env_ids), device=gs.device)
+        self._is_standing_env[env_ids] = (
+            num.uniform_(0.0, 1.0) <= self.standing_probability
+        )
+        standing_envs_idx = self._is_standing_env.nonzero(as_tuple=False).flatten()
+        self._command[standing_envs_idx, :] = 0.0
+
+    def build(self):
+        """Build the velocity command manager"""
+        super().build()
+
+        # If debug envs_idx is not set, attempt to use the vis_options rendered_envs_idx
+        self.debug_envs_idx = self.visualizer_cfg.get("envs_idx", None)
+        if self.debug_envs_idx is None and self.env.scene.vis_options is not None:
+            self.debug_envs_idx = self.env.scene.vis_options.rendered_envs_idx
+        if self.debug_envs_idx is None:
+            self.debug_envs_idx = list[int](range(self.env.num_envs))
 
     def step(self):
         """Render the command arrows"""
@@ -188,23 +211,8 @@ class VelocityCommandManager(CommandManager):
         )
 
     """
-    Implementation
+    Internal Implementation
     """
-
-    def _resample_command(self, env_ids: list[int]):
-        """
-        Overwrites commands for environments that should be standing still.
-        """
-        super().resample_command(env_ids)
-        if not self.enabled:
-            return
-
-        num = torch.empty(len(env_ids), device=gs.device)
-        self._is_standing_env[env_ids] = (
-            num.uniform_(0.0, 1.0) <= self.standing_probability
-        )
-        standing_envs_idx = self._is_standing_env.nonzero(as_tuple=False).flatten()
-        self._command[standing_envs_idx, :] = 0.0
 
     def _render_arrows(self):
         """
@@ -256,12 +264,7 @@ class VelocityCommandManager(CommandManager):
         actual_vec[:, 2] = 0.0
         actual_vec[:, :] *= scale_factor
 
-        debug_envs = (
-            self.visualizer_cfg["envs_idx"]
-            if self.visualizer_cfg["envs_idx"] is not None
-            else range(self.env.num_envs)
-        )
-        for i in debug_envs:
+        for i in self.debug_envs_idx:
             # Target arrow (robot-relative command transformed to world coordinates for visualization)
             self._draw_arrow(
                 pos=arrow_pos[i],

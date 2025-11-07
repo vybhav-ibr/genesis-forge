@@ -1,32 +1,34 @@
+import torch
 import genesis as gs
 
 from genesis_forge import ManagedEnvironment
 from genesis_forge.managers import (
+    ActuatorManager,
     RewardManager,
     TerminationManager,
     EntityManager,
     ObservationManager,
-    ActuatorManager,
     PositionActionManager,
     VelocityCommandManager,
-    ContactManager,
 )
+from genesis_forge.managers.actuator import NoisyValue
 from genesis_forge.mdp import reset, rewards, terminations
 
 
-INITIAL_BODY_POSITION = [0.0, 0.0, 0.515]
+HEIGHT_OFFSET = 0.4
+INITIAL_BODY_POSITION = [0.0, 0.0, HEIGHT_OFFSET]
 INITIAL_QUAT = [1.0, 0.0, 0.0, 0.0]
 
 
-class BerkeleyHumanoidEnv(ManagedEnvironment):
+class Go2CommandDirectionEnv(ManagedEnvironment):
     """
-    Example training environment for the Berkeley Humanoid robot.
+    Example training environment for the Go2 robot.
     """
 
     def __init__(
         self,
         num_envs: int = 1,
-        dt: float = 1 / 50,
+        dt: float = 1 / 50,  # control frequency on real robot is 50hz
         max_episode_length_s: int | None = 20,
         headless: bool = True,
     ):
@@ -43,7 +45,7 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
             sim_options=gs.options.SimOptions(dt=self.dt, substeps=2),
             viewer_options=gs.options.ViewerOptions(
                 max_FPS=int(0.5 / self.dt),
-                camera_pos=(2.5, 0.0, 2.5),
+                camera_pos=(2.0, 0.0, 2.5),
                 camera_lookat=(0.0, 0.0, 0.5),
                 camera_fov=40,
             ),
@@ -52,8 +54,18 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
                 dt=self.dt,
                 constraint_solver=gs.constraint_solver.Newton,
                 enable_collision=True,
-                enable_self_collision=True,
                 enable_joint_limit=True,
+                # for this locomotion policy there are usually no more than 30 collision pairs
+                # set a low value can save memory
+                max_collision_pairs=30,
+                #
+                # Batching must be enabled to enable domain randomization of the DOF armature settings.
+                # Enabling these settings will SIGNIFICANTLY slow down the simulation,
+                # but will also increase the randomization across all envs.
+                # Uncomment the following 3 lines to enable this:
+                # batch_dofs_info=True,
+                # batch_joints_info=True,
+                # batch_links_info=True,
             ),
         )
 
@@ -62,8 +74,8 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
 
         # Robot
         self.robot = self.scene.add_entity(
-            gs.morphs.MJCF(
-                file="./model/berkeley_humanoid.xml",
+            gs.morphs.URDF(
+                file="urdf/go2/urdf/go2.urdf",
                 pos=INITIAL_BODY_POSITION,
                 quat=INITIAL_QUAT,
             ),
@@ -71,7 +83,7 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
 
         # Camera, for headless video recording
         self.camera = self.scene.add_camera(
-            pos=(2.5, 0.0, 2.5),
+            pos=(-2.5, -1.5, 1.0),
             lookat=(0.0, 0.0, 0.0),
             res=(1280, 720),
             fov=40,
@@ -91,6 +103,7 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
             self,
             entity_attr="robot",
             on_reset={
+                # Reset the robot's initial position
                 "position": {
                     "fn": reset.position,
                     "params": {
@@ -99,42 +112,39 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
                         "zero_velocity": True,
                     },
                 },
+                # Add/subtract a random amount of mass to the robot's body
+                "mass": {
+                    "fn": reset.randomize_link_mass_shift,
+                    "params": {
+                        "link_name": "base",
+                        "mass_range": [-0.5, 1.0],  # kg
+                    },
+                },
             },
         )
 
         ##
-        # Joint Actions & actuator configuration
+        # Joint Actions
         self.actuator_manager = ActuatorManager(
             self,
             joint_names=[".*"],
-            kp=15.0,
-            kv=1.0,
             default_pos={
-                "LL_HR": -0.071,
-                "LR_HR": 0.071,
-                "LL_HAA": 0.103,
-                "LR_HAA": -0.103,
-                "LL_HFE": -0.463,
-                "LR_HFE": -0.463,
-                "LL_KFE": 0.983,
-                "LR_KFE": 0.983,
-                "LL_FFE": -0.350,
-                "LR_FFE": -0.350,
-                "LL_FAA": 0.126,
-                "LR_FAA": -0.126,
+                # Randomize the default positions by +/- 0.05 radians
+                ".*_hip_joint": NoisyValue(0.0, 0.02),
+                "FL_thigh_joint": NoisyValue(0.8, 0.02),
+                "FR_thigh_joint": NoisyValue(0.8, 0.02),
+                "RL_thigh_joint": NoisyValue(1.0, 0.02),
+                "RR_thigh_joint": NoisyValue(1.0, 0.02),
+                ".*_calf_joint": NoisyValue(-1.5, 0.02),
             },
-            max_force={
-                ".*_HR": 20.0,
-                ".*_HAA": 20.0,
-                ".*_HFE": 30.0,
-                ".*_KFE": 30.0,
-                ".*_FFE": 20.0,
-                ".*_FAA": 5.0,
-            },
+            kp=NoisyValue(25, 2.0),  # +/- 2.0
+            kv=NoisyValue(0.5, 0.05),  # +/- 0.05
+            damping=NoisyValue(2.0, 0.05),  # +/- 0.05
+            frictionloss=NoisyValue(0.2, 0.05),  # +/- 0.05
         )
         self.action_manager = PositionActionManager(
             self,
-            scale=0.5,
+            scale=0.25,
             use_default_offset=True,
             actuator_manager=self.actuator_manager,
         )
@@ -144,29 +154,16 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
         self.velocity_command = VelocityCommandManager(
             self,
             range={
-                "lin_vel_x": [0.0, 1.0],
-                "lin_vel_y": [0.0, 0.0],
-                "ang_vel_z": [-0.5, 0.5],
+                "lin_vel_x": [-1.0, 1.0],
+                "lin_vel_y": [-1.0, 1.0],
+                "ang_vel_z": [-1.0, 1.0],
             },
             standing_probability=0.02,
             resample_time_sec=5.0,
             debug_visualizer=True,
             debug_visualizer_cfg={
                 "envs_idx": [0],
-                "arrow_offset": 0.12,
             },
-        )
-
-        ##
-        # Contact managers
-        self.torso_contact_manager = ContactManager(
-            self,
-            link_names=["torso"],
-        )
-        self.feet_contact_manager = ContactManager(
-            self,
-            link_names=[".*_faa"],
-            track_air_time=True,
         )
 
         ##
@@ -175,6 +172,14 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
             self,
             logging_enabled=True,
             cfg={
+                "base_height_target": {
+                    "weight": -50.0,
+                    "fn": rewards.base_height,
+                    "params": {
+                        "target_height": 0.3,
+                        "entity_attr": "robot",
+                    },
+                },
                 "tracking_lin_vel": {
                     "weight": 1.0,
                     "fn": rewards.command_tracking_lin_vel,
@@ -192,15 +197,8 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
                     },
                 },
                 "lin_vel_z": {
-                    "weight": -2.0,
+                    "weight": -1.0,
                     "fn": rewards.lin_vel_z_l2,
-                    "params": {
-                        "entity_manager": self.robot_manager,
-                    },
-                },
-                "ang_vel_xy_l2": {
-                    "weight": -0.05,
-                    "fn": rewards.ang_vel_xy_l2,
                     "params": {
                         "entity_manager": self.robot_manager,
                     },
@@ -210,20 +208,10 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
                     "fn": rewards.action_rate_l2,
                 },
                 "similar_to_default": {
-                    "weight": -0.05,
+                    "weight": -0.1,
                     "fn": rewards.dof_similar_to_default,
                     "params": {
                         "action_manager": self.action_manager,
-                    },
-                },
-                "feet_air_time": {
-                    "weight": 2.0,
-                    "fn": rewards.feet_air_time,
-                    "params": {
-                        "time_threshold": 0.2,
-                        "time_threshold_max": 0.5,
-                        "contact_manager": self.feet_contact_manager,
-                        "vel_cmd_manager": self.velocity_command,
                     },
                 },
             },
@@ -241,10 +229,11 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
                     "time_out": True,
                 },
                 # Terminate if the robot's pitch and yaw angles are too large
-                "torso_contact": {
-                    "fn": terminations.contact_force,
+                "fall_over": {
+                    "fn": terminations.bad_orientation,
                     "params": {
-                        "contact_manager": self.torso_contact_manager,
+                        "limit_angle": 15.0,
+                        "entity_manager": self.robot_manager,
                     },
                 },
             },
@@ -255,22 +244,29 @@ class BerkeleyHumanoidEnv(ManagedEnvironment):
         ObservationManager(
             self,
             cfg={
-                "velocity_cmd": {"fn": self.velocity_command.observation},
+                "velocity_cmd": {
+                    "fn": self.velocity_command.observation,
+                },
                 "angle_velocity": {
                     "fn": lambda env: self.robot_manager.get_angular_velocity(),
+                    "noise": 0.01,
                 },
                 "linear_velocity": {
                     "fn": lambda env: self.robot_manager.get_linear_velocity(),
+                    "noise": 0.01,
                 },
                 "projected_gravity": {
                     "fn": lambda env: self.robot_manager.get_projected_gravity(),
+                    "noise": 0.01,
                 },
                 "dof_position": {
                     "fn": lambda env: self.action_manager.get_dofs_position(),
+                    "noise": 0.01,
                 },
                 "dof_velocity": {
                     "fn": lambda env: self.action_manager.get_dofs_velocity(),
-                    "scale": 0.05,
+                    "scale": 0.02,
+                    "noise": 0.01,
                 },
                 "actions": {
                     "fn": lambda env: self.action_manager.get_actions(),

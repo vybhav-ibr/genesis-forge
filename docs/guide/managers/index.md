@@ -46,6 +46,7 @@ Explore the managers to learn more.
 ```{toctree}
 :maxdepth: 1
 
+actuator
 action
 command
 contact

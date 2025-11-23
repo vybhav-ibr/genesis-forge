@@ -7,13 +7,17 @@ from __future__ import annotations
 
 import torch
 import genesis as gs
+from genesis.utils.geom import quat_to_xyz
 from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers import (
     ActuatorManager,
     CommandManager,
+    PositionCommandManager,
+    PoseCommandManager,
     VelocityCommandManager,
     PositionActionManager,
     ContactManager,
+    ImuManager,
     TerrainManager,
     EntityManager,
 )
@@ -51,7 +55,6 @@ def terminated(env: GenesisEnv) -> torch.Tensor:
 """
 Robot base position/state
 """
-
 
 def base_height(
     env: GenesisEnv,
@@ -283,9 +286,213 @@ def action_rate_l2(env: GenesisEnv) -> torch.Tensor:
 
 
 """
-Velocity Command Rewards
+Position Command Rewards
 """
 
+def commonad_tracking_base_position(
+    env: GenesisEnv,
+    command: torch.Tensor = None,
+    position_cmd_manager: PositionCommandManager = None,
+    sensitivity: float = 0.25,
+    entity_attr: str = "robot",
+    entity_manager: EntityManager = None,
+) -> torch.Tensor:
+    """
+    Penalize base pose away from target.
+
+    Args:
+        env: The Genesis environment containing the robot
+        command: The commanded XYZ position the the world frame, its shape is(num_envs, 3)
+        position_cmd_manager: The velocity command manager
+        sensitivity: A lower value means the reward is more sensitive to the error
+        entity_attr: The attribute name of the entity in the environment.
+        entity_manager: The entity manager for the entity.
+
+    Returns:
+        torch.Tensor: Penalty for base position away from target
+    """
+    assert (
+        command is not None or position_cmd_manager is not None
+    ), "Either command or position_cmd_manager must be provided to commonad_tracking_base_position"
+    
+    if entity_manager is not None:
+        base_pos = entity_manager.entity.get_pos()
+    else:
+        robot = getattr(env, entity_attr)
+        base_pos = robot.get_pos()
+
+    if position_cmd_manager is not None:
+        command = position_cmd_manager.command[:, :2]
+        
+    base_pos_error= torch.sum(torch.square(command - base_pos), dim=1)
+    return torch.square(-base_pos_error/sensitivity)
+
+def commonad_tracking_link_position(
+    env: GenesisEnv,
+    link_name: str=None,
+    command: torch.Tensor = None,
+    position_cmd_manager: PositionCommandManager = None,
+    sensitivity: float = 0.25,
+    entity_attr: str = "robot",
+    entity_manager: EntityManager = None,
+) -> torch.Tensor:
+    """
+    Penalize link pose away from target.
+
+    Args:
+        env: The Genesis environment containing the robot
+        link_name: the name of the position to track
+        command: The commanded XYZ position the the world frame, its shape is(num_envs, 3)
+        position_cmd_manager: The velocity command manager
+        sensitivity: A lower value means the reward is more sensitive to the error
+        entity_attr: The attribute name of the entity in the environment.
+        entity_manager: The entity manager for the entity.
+
+    Returns:
+        torch.Tensor: Penalty for base position away from target
+    """
+    assert (
+        command is not None or position_cmd_manager is not None
+    ), "Either command or position_cmd_manager must be provided to commonad_tracking_base_position"
+    
+    if entity_manager is not None:
+        link_pos = entity_manager.entity.get_link(link_name).get_pos()
+    else:
+        robot = getattr(env, entity_attr)
+        link_pos = robot.get_link(link_name).get_pos()
+
+    if position_cmd_manager is not None:
+        command = position_cmd_manager.command[:, :2]
+        
+    link_pos_error= torch.sum(torch.square(command - link_pos), dim=1)
+    return torch.square(-link_pos_error/sensitivity)
+
+"""
+Pose Command Rewards
+"""
+
+def command_tracking_base_pose(
+    env: GenesisEnv,
+    command: torch.Tensor = None,
+    pose_cmd_manager: PoseCommandManager = None,
+    pos_sensitivity: float = 0.25,  
+    euler_sensitivity: float = 0.25,  
+    entity_attr: str = "robot",
+    entity_manager: 'EntityManager' = None,
+) -> torch.Tensor:
+    """
+    Penalize base pose away from target (both position and Euler angles) with separate sensitivities.
+
+    Args:
+        env: The Genesis environment containing the robot
+        command: The commanded XYZ position and Euler angles (in world frame), shape (num_envs, 6) where first 3 are position and last 3 are Euler angles.
+        position_cmd_manager: The velocity command manager
+        pos_sensitivity: A lower value means the reward is more sensitive to position error
+        euler_sensitivity: A lower value means the reward is more sensitive to Euler angle error
+        entity_attr: The attribute name of the entity in the environment.
+        entity_manager: The entity manager for the entity.
+
+    Returns:
+        torch.Tensor: Penalty for base position and Euler angles away from target
+    """
+    assert (
+        command is not None or pose_cmd_manager is not None
+    ), "Either command or position_cmd_manager must be provided to command_tracking_base_pose"
+    
+    if entity_manager is not None:
+        base_pos = entity_manager.entity.get_pos()  
+        base_euler = quat_to_xyz(entity_manager.entity.get_euler())  
+    else:
+        robot = getattr(env, entity_attr)
+        base_pos = robot.get_pos()  
+        base_euler = quat_to_xyz(robot.get_euler())  
+
+    if pose_cmd_manager is not None:
+        command_pos = pose_cmd_manager.command[:, :3]  
+        command_euler = pose_cmd_manager.command[:, 3:6] 
+    else:
+        command_pos = command[:, :3]  
+        command_euler = command[:, 3:6]  
+
+    pos_error = torch.sum(torch.square(command_pos - base_pos), dim=1)
+
+    euler_error = torch.sum(torch.square(
+        torch.min(
+            torch.abs(command_euler - base_euler),  
+            2 * torch.pi - torch.abs(command_euler - base_euler)  
+        )
+    ), dim=1)
+
+    pos_penalty = torch.square(-pos_error / pos_sensitivity)
+    euler_penalty = torch.square(-euler_error / euler_sensitivity)
+
+    total_penalty = pos_penalty + euler_penalty
+
+    return total_penalty
+
+def command_tracking_link_pose(
+    env: GenesisEnv,
+    link_name: str,
+    command: torch.Tensor = None,
+    pose_cmd_manager: PoseCommandManager = None,
+    pos_sensitivity: float = 0.25,  
+    euler_sensitivity: float = 0.25,  
+    entity_attr: str = "robot",
+    entity_manager: 'EntityManager' = None,
+) -> torch.Tensor:
+    """
+    Penalize base pose away from target (both position and Euler angles) with separate sensitivities.
+
+    Args:
+        env: The Genesis environment containing the robot
+        command: The commanded XYZ position and Euler angles (in world frame), shape (num_envs, 6) where first 3 are position and last 3 are Euler angles.
+        position_cmd_manager: The velocity command manager
+        pos_sensitivity: A lower value means the reward is more sensitive to position error
+        euler_sensitivity: A lower value means the reward is more sensitive to Euler angle error
+        entity_attr: The attribute name of the entity in the environment.
+        entity_manager: The entity manager for the entity.
+
+    Returns:
+        torch.Tensor: Penalty for base position and Euler angles away from target
+    """
+    assert (
+        command is not None or pose_cmd_manager is not None
+    ), "Either command or position_cmd_manager must be provided to command_tracking_base_pose"
+    
+    if entity_manager is not None:
+        base_pos = entity_manager.entity.get_link(link_name).get_pos()  
+        base_euler = quat_to_xyz(entity_manager.entity.get_link(link_name).get_euler())  
+    else:
+        robot = getattr(env, entity_attr)
+        base_pos = robot.get_link(link_name).get_pos()  
+        base_euler = quat_to_xyz(robot.get_link(link_name).get_euler())  
+
+    if pose_cmd_manager is not None:
+        command_pos = pose_cmd_manager.command[:, :3]  
+        command_euler = pose_cmd_manager.command[:, 3:6] 
+    else:
+        command_pos = command[:, :3]  
+        command_euler = command[:, 3:6]  
+
+    pos_error = torch.sum(torch.square(command_pos - base_pos), dim=1)
+
+    euler_error = torch.sum(torch.square(
+        torch.min(
+            torch.abs(command_euler - base_euler),  
+            2 * torch.pi - torch.abs(command_euler - base_euler)  
+        )
+    ), dim=1)
+
+    pos_penalty = torch.square(-pos_error / pos_sensitivity)
+    euler_penalty = torch.square(-euler_error / euler_sensitivity)
+
+    total_penalty = pos_penalty + euler_penalty
+
+    return total_penalty
+
+"""
+Velocity Command Rewards
+"""
 
 def command_tracking_lin_vel(
     env: GenesisEnv,
@@ -303,9 +510,9 @@ def command_tracking_lin_vel(
         command: The commanded XY linear velocity in the shape (num_envs, 2)
         vel_cmd_manager: The velocity command manager
         sensitivity: A lower value means the reward is more sensitive to the error
-        entity_manager: The entity manager for the robot/entity the reward is being computed for.
-                        This is slightly more performant than using the `entity_attr` parameter.
         entity_attr: The attribute name of the entity in the environment. This isn't necessary if `entity_manager` is provided.
+        entity_manager: The entity manager for the robot/entity the reward is being computed for.
+                This is slightly more performant than using the `entity_attr` parameter.
 
     Returns:
         torch.Tensor: Reward for tracking of linear velocity commands (xy axes)
@@ -405,6 +612,63 @@ def stand_still_joint_deviation_l1(
     command = vel_cmd_manager.command
     return joint_deviation * (torch.norm(command[:, :2], dim=1) < command_threshold)
 
+
+"""
+Imu
+"""
+
+def imu_lin_acc_jitter(
+    _env: GenesisEnv,
+    imu_manager: ImuManager,
+    queue_size: int = 10,
+    ignore_gravity: bool = False,
+) -> torch.Tensor:
+    """
+    Penalize changes in linear acceleration (jerk) using the IMU's internal queue.
+
+    Returns:
+        torch.Tensor of shape (num_envs,)
+    """
+    lin_acc_queue = imu_manager.get_lin_acceleration_queue() 
+    T = lin_acc_queue.shape[0]
+
+    if ignore_gravity:
+        lin_acc_queue[..., 2] += 9.81
+
+    if queue_size < T:
+        lin_acc_queue = lin_acc_queue[-queue_size:]
+
+    if lin_acc_queue.shape[0] < 2:
+        return torch.zeros(_env.scene.num_envs)
+
+    diffs = lin_acc_queue[1:] - lin_acc_queue[:-1] 
+    mags = torch.norm(diffs, dim=-1)               
+    return mags.sum(dim=0)
+
+def imu_ang_vel_jitter(
+    _env: GenesisEnv,
+    imu_manager: ImuManager,
+    queue_size: int = 10,
+) -> torch.Tensor:
+    """
+    Penalize changes in angular velocity (gyro jerk) using the IMU's internal queue.
+
+    Returns:
+        torch.Tensor of shape (num_envs,)
+    """
+    ang_vel_queue = imu_manager.get_ang_velocity_queue() 
+    T = ang_vel_queue.shape[0]
+
+    if queue_size < T:
+        ang_vel_queue = ang_vel_queue[-queue_size:]
+
+    if ang_vel_queue.shape[0] < 2:
+        return torch.zeros(_env.scene.num_envs)
+
+    diffs = ang_vel_queue[1:] - ang_vel_queue[:-1]
+    mags = torch.norm(diffs, dim=-1)
+    
+    return mags.sum(dim=0)
 
 """
 Contacts

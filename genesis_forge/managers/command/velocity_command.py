@@ -5,6 +5,7 @@ import torch
 import genesis as gs
 
 from genesis_forge.genesis_env import GenesisEnv
+from genesis_forge.ros2_env import Ros2Env
 from genesis_forge.utils import entity_lin_vel, transform_by_quat
 from genesis_forge.gamepads import Gamepad
 
@@ -130,7 +131,7 @@ class VelocityCommandManager(CommandManager):
 
     def __init__(
         self,
-        env: GenesisEnv,
+        env: GenesisEnv| Ros2Env,
         range: VelocityCommandRange,
         resample_time_sec: float = 5.0,
         standing_probability: float = 0.0,
@@ -172,18 +173,20 @@ class VelocityCommandManager(CommandManager):
         super().build()
 
         # If debug envs_idx is not set, attempt to use the vis_options rendered_envs_idx
-        self.debug_envs_idx = self.visualizer_cfg.get("envs_idx", None)
-        if self.debug_envs_idx is None and self.env.scene.vis_options is not None:
-            self.debug_envs_idx = self.env.scene.vis_options.rendered_envs_idx
-        if self.debug_envs_idx is None:
-            self.debug_envs_idx = list[int](range(self.env.num_envs))
+        if self.env.scene is not None:
+            self.debug_envs_idx = self.visualizer_cfg.get("envs_idx", None)
+            if self.debug_envs_idx is None and self.env.scene.vis_options is not None:
+                self.debug_envs_idx = self.env.scene.vis_options.rendered_envs_idx
+            if self.debug_envs_idx is None:
+                self.debug_envs_idx = list[int](range(self.env.num_envs))
 
     def step(self):
         """Render the command arrows"""
         if not self.enabled:
             return
         super().step()
-        self._render_arrows()
+        if self.env.scene is not None:
+            self._render_arrows()
 
     def use_gamepad(
         self,

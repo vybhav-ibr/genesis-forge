@@ -29,13 +29,7 @@ class BufferItem(TypedDict):
     """A buffer of values for each DOF index."""
 
     noise: torch.Tensor
-    """The noise scale for each index of the buffer."""
-
-    noise_buffer: torch.Tensor
-    """A pre-allocated buffer that will be filled with random noise values at each reset."""
-
-    output_buffer: torch.Tensor
-    """A pre-allocated buffer that will be filled with the values at each step."""
+    """The noise for each index of the buffer."""
 
     has_noise: bool
     """Does this value have noise associated with it?"""
@@ -427,12 +421,10 @@ class ActuatorManager(BaseManager):
             return
 
         # Initialize the buffers
-        value_buffer = torch.zeros((num_dofs,), device=gs.device, dtype=gs.tc_float)
+        buffer = torch.zeros((num_dofs,), device=gs.device, dtype=gs.tc_float)
         noise = torch.zeros((num_dofs,), device=gs.device, dtype=gs.tc_float).fill_(
             self._default_noise_scale
         )
-        noise_buffer = torch.zeros_like(value_buffer, device=gs.device)
-        output_buffer = torch.zeros_like(value_buffer, device=gs.device)
 
         for pattern, value in config.items():
             found = False
@@ -445,24 +437,22 @@ class ActuatorManager(BaseManager):
 
                     if isinstance(value, NoisyValue):
                         noise[i] = value.noise
-                        value_buffer[i] = value.value
+                        buffer[i] = value.value
                         has_noise = True
                     else:
-                        value_buffer[i] = value
+                        buffer[i] = value
             if not found:
                 raise RuntimeError(f"Joint DOF '{pattern}' not found.")
 
         # Expand the default postion buffer to the number of environments
         if value_name == "default_pos" or self._batch_dofs_enabled:
-            value_buffer = value_buffer.unsqueeze(0).expand(self.env.num_envs, -1)
+            buffer = buffer.unsqueeze(0).expand(self.env.num_envs, -1)
             noise = noise.unsqueeze(0).expand(self.env.num_envs, -1)
 
         # Expand the buffer to the number of environments
         self._values[value_name] = {
-            "buffer": value_buffer,
+            "buffer": buffer,
             "noise": noise,
-            "noise_buffer": noise_buffer,
-            "output_buffer": output_buffer,
             "has_noise": has_noise,
             "has_been_set": False,
         }
@@ -473,15 +463,12 @@ class ActuatorManager(BaseManager):
         """
         Get the value buffer tensor, with noise applied
         """
-        output = self._values[name]["output_buffer"]
+        values = self._values[name]["buffer"].clone()
         noise = self._values[name]["noise"]
-        noise_buffer = self._values[name]["noise_buffer"]
-
-        output[:] = self._values[name]["buffer"]
-        output += noise_buffer.uniform_(-1, 1) * noise
-        if envs_idx is not None and output.ndim == 2:
-            output = output[envs_idx]
-        return output
+        values += torch.empty_like(values).uniform_(-1, 1) * noise
+        if envs_idx is not None and values.ndim == 2:
+            values = values[envs_idx]
+        return values
 
     def _add_random_noise(
         self, values: torch.Tensor, noise_scale: float = 0.0

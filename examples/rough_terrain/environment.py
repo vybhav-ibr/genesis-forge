@@ -13,6 +13,7 @@ from genesis_forge.managers import (
     VelocityCommandManager,
     TerrainManager,
     ContactManager,
+    ActuatorManager
 )
 from genesis_forge.mdp import reset, rewards, terminations
 

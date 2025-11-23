@@ -325,6 +325,7 @@ class PositionActionManager(BaseActionManager):
         # Validate actions
         if not self._quiet_action_errors:
             if torch.isnan(actions).any():
+                assert NotImplementedError
                 print(f"ERROR: NaN actions received! Actions: {actions}")
             if torch.isinf(actions).any():
                 print(f"ERROR: Infinite actions received! Actions: {actions}")

@@ -1,5 +1,6 @@
 import torch
 import numpy as np
+import collections
 from gymnasium import spaces
 import genesis as gs
 from typing import TypedDict, Callable, Any
@@ -136,12 +137,14 @@ class ObservationManager(BaseManager):
         cfg: dict[str, ObservationConfig],
         name: str = "policy",
         history_len: int | None = None,
+        obs_to_discard: list[str]=None,
         noise: tuple[float, float] | None = None,
     ):
         super().__init__(env, "observation")
         self._name = name
         self.cfg = cfg
         self.noise = noise
+        self.obs_to_discard=obs_to_discard if obs_to_discard is not None else []
         self._observation_size = 1
         self._observation_space = None
 
@@ -197,39 +200,52 @@ class ObservationManager(BaseManager):
             assert callable(cfg.fn), f"Observation function {name} is not callable"
 
         # Make an initial observation and create the observation space
-        obs = self._perform_observation()
-        single_obs_size = obs.shape[1]
-        self._observation_size = single_obs_size * self._history_len
-        self._observation_space = spaces.Box(
-            low=-np.inf,
-            high=np.inf,
-            shape=(self._observation_size,),
-            dtype=np.float32,
-        )
+        obs = self._perform_observation(single_agent=True)
+        single_obs_size=0
+        if len(self.obs_to_discard)>0:
+            for key,value in obs.items(): 
+                if key not in self.obs_to_discard:
+                    single_obs_size +=value.shape[0]
+        else:
+            for key,value in obs.items():
+                if value.ndim<=2:
+                    single_obs_size +=value.shape[0]
+        
+        self._observation_space=self._spec_to_space(obs)
+        
+        if self._history_len>1:
+            self._observation_size = single_obs_size * self._history_len
 
-        # Fill history buffer
-        shape = (self.env.num_envs, single_obs_size)
-        self._history = [
-            torch.zeros(shape, device=gs.device) for _ in range(self._history_len)
-        ]
+            # Fill history buffer
+            shape = (self.env.num_envs, single_obs_size)
+            self._history = [
+                torch.zeros(shape, device=gs.device) for _ in range(self._history_len)
+            ]
 
     def get_observations(self) -> torch.Tensor:
         """Generate current observations for all environments."""
         if not self.enabled:
             return torch.zeros((self.env.num_envs, self._observation_size))
-
-        self._history.pop()
+        
         obs = self._perform_observation()
-        self._history.insert(0, obs)
-        return torch.cat(self._history, dim=-1)
+        obs_flattened=torch.cat([
+            obs_value.view(self.env.num_envs, -1) if obs_value.dim() != 2 else obs_value 
+            for obs_value in obs.values()
+        ],dim=-1)
+        # only use the _history if _history_len is grater than 1
+        if self._history_len>1:
+            self._history.pop()
+            self._history.insert(0, obs_flattened)
+            return torch.cat(self._history, dim=-1)
+        return obs_flattened
 
     """
     Private methods.
     """
 
-    def _perform_observation(self) -> torch.Tensor:
+    def _perform_observation(self,single_agent=False) -> torch.Tensor:
         """Perform a round of observations."""
-        obs = []
+        obs = {}
         for name, cfg in self.cfg.items():
             try:
                 # Get values
@@ -246,9 +262,32 @@ class ObservationManager(BaseManager):
                 if noise is not None and noise != 0.0:
                     noise_value = torch.empty_like(value).uniform_(-1, 1) * noise
                     value += noise_value
-
-                obs.append(value)
+                obs[name]=value[0] if single_agent else value
             except Exception as e:
                 print(f"Error generating observation for '{name}'")
                 raise e
-        return torch.cat(obs, dim=-1)
+        return collections.OrderedDict(obs)
+
+    def _spec_to_space(self, spec: Any) -> spaces.Space:
+        """returns an gymnasium.space action space based on the observation """
+        if type(spec) is tuple:
+            return spaces.Box(shape=spec[0].shape, dtype=np.float64, low=spec[0], high=spec[1])
+        elif isinstance(spec, np.ndarray):
+            return spaces.Box(
+                shape=spec.shape,
+                dtype=np.float64,
+                low=np.full(spec.shape, float("-inf")),
+                high=np.full(spec.shape, float("inf")),
+            )
+        elif isinstance(spec, torch.Tensor):
+            spec.detach().cpu().numpy()
+            return spaces.Box(
+                shape=spec.shape,
+                dtype=np.float64,
+                low=np.full(spec.shape, float("-inf")),
+                high=np.full(spec.shape, float("inf")),
+            )
+        elif isinstance(spec, collections.OrderedDict):
+            return spaces.Dict({k: self._spec_to_space(v) for k, v in spec.items()})
+        else:
+            raise ValueError(f"Spec type {type(spec)} not supported. Please report this issue")

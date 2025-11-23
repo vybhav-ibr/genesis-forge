@@ -15,6 +15,11 @@ from genesis_forge.managers import (
     RewardManager,
     TerminationManager,
     ActuatorManager,
+    CameraManager,
+    ImuManager,
+    DepthCameraManager,
+    SphericalRaycasterManager,
+    GridRaycasterManager
 )
 
 
@@ -22,6 +27,11 @@ class ManagersDict(TypedDict):
     actuator: ActuatorManager | None
     contact: list[ContactManager]
     entity: list[EntityManager]
+    imu_sensor: list[ImuManager]
+    camera_sensor: list[CameraManager]
+    depth_camera_sensor: list[DepthCameraManager]
+    grid_raycaster_sensor: list[GridRaycasterManager]
+    spherical_raycaster_sensor: list[SphericalRaycasterManager]
     command: list[CommandManager]
     terrain: list[TerrainManager]
     action: PositionActionManager | None
@@ -127,12 +137,16 @@ class ManagedEnvironment(GenesisEnv):
             max_episode_random_scaling=max_episode_random_scaling,
             extras_logging_key=extras_logging_key,
         )
-
         self.managers: ManagersDict = {
             "contact": [],
             "entity": [],
             "command": [],
             "terrain": [],
+            "imu_sensor":[],
+            "camera_sensor":[],
+            "depth_camera_sensor":[],
+            "grid_raycaster_sensor":[],
+            "spherical_raycaster_sensor":[],
             # there can only be one of each of these
             "actuator": None,
             "action": None,
@@ -254,8 +268,8 @@ class ManagedEnvironment(GenesisEnv):
         Builds the environment before the first step.
         The Genesis scene and all the scene entities must be added before calling this method.
         """
-        super().build()
         self.config()
+        super().build()
 
         for terrain_manager in self.managers["terrain"]:
             terrain_manager.build()
@@ -263,8 +277,25 @@ class ManagedEnvironment(GenesisEnv):
             self.managers["actuator"].build()
         if self.managers["action"] is not None:
             self.managers["action"].build()
+        
         for contact_manager in self.managers["contact"]:
             contact_manager.build()
+
+        for imu_manager in self.managers["imu_sensor"]:
+            imu_manager.build()
+                    
+        for camera_manager in self.managers["camera_sensor"]:
+            camera_manager.build()
+            
+        for depth_camera_manager in self.managers["depth_camera_sensor"]:
+            depth_camera_manager.build()
+            
+        for grid_raycaster_manager in self.managers["grid_raycaster_sensor"]:
+            grid_raycaster_manager.build()
+            
+        for spherical_raycaster_manager in self.managers["spherical_raycaster_sensor"]:
+            spherical_raycaster_manager.build()
+            
         if self.managers["termination"] is not None:
             self.managers["termination"].build()
         if self.managers["reward"] is not None:
@@ -277,7 +308,7 @@ class ManagedEnvironment(GenesisEnv):
             obs.build()
 
     def step(
-        self, actions: torch.Tensor
+        self, actions: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, Any]]:
         """
         Performs a step in all environments with the given actions.
@@ -294,6 +325,7 @@ class ManagedEnvironment(GenesisEnv):
         # Execute the actions and a simulation step
         if self.managers["action"] is not None:
             self.managers["action"].step(actions)
+        
         self.scene.step()
 
         # Update entity managers
@@ -303,6 +335,21 @@ class ManagedEnvironment(GenesisEnv):
         # Calculate contact forces
         for contact_manager in self.managers["contact"]:
             contact_manager.step()
+            
+        for imu_manager in self.managers["imu_sensor"]:
+            imu_manager.step()
+                    
+        for camera_manager in self.managers["camera_sensor"]:
+            camera_manager.step()
+            
+        for depth_camera_manager in self.managers["depth_camera_sensor"]:
+            depth_camera_manager.step()
+            
+        for grid_raycaster_manager in self.managers["grid_raycaster_sensor"]:
+            grid_raycaster_manager.step()
+            
+        for spherical_raycaster_manager in self.managers["spherical_raycaster_sensor"]:
+            spherical_raycaster_manager.step()
 
         # Calculate termination and truncation
         reset_env_idx = None
@@ -329,7 +376,6 @@ class ManagedEnvironment(GenesisEnv):
 
         # Get observations
         obs = self.get_observations()
-
         return (
             obs,
             rewards,

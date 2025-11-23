@@ -76,6 +76,7 @@ class EntityManager(BaseManager):
         env: GenesisEnv,
         entity_attr: str,
         on_reset: dict[str, EntityResetConfig],
+        ros_node=None
     ):
         super().__init__(env, type="entity")
         if hasattr(env, "add_entity_manager"):
@@ -84,6 +85,15 @@ class EntityManager(BaseManager):
         self.entity: RigidEntity | None = None
         self.on_reset = on_reset
         self._entity_attr = entity_attr
+        
+        if ros_node is not None:
+            from geometry_msgs.msg import Pose
+            from geometry_msgs.msg import Twist
+            self._ros_node=ros_node
+            self._setup_pose_subscriber()
+            self._setup_twist_subscriber()
+        else:
+            self._ros_node=None
 
         # Wrap config items
         self.on_reset: dict[str, ConfigItem] = {}
@@ -131,6 +141,20 @@ class EntityManager(BaseManager):
     Helpers
     """
 
+    def _setup_pose_subscriber(self):
+        if self._ros_node is not None:
+            def pose_subscriber_callback(msg):
+                self._robot_pos=torch.tensor(msg.poisition)
+                self._robot_quat=torch.tensor(self._to_gs_quat_format(msg.orientation))
+            self._ros_node.create_subscription(Pose,"pose_robotic",pose_subscriber_callback,100)
+    
+    def _setup_twist_subscriber(self):
+        if self._ros_node is not None:
+            def twist_subscriber_callback(msg):
+                self._robot_lin_vel=torch.tensor(msg.linear)
+                self._robot_ang_vel=torch.tensor(msg.angular)
+            self._ros_node.create_subscription(Twist,"twist_robotic",twist_subscriber_callback,100)
+            
     def get_projected_gravity(self) -> torch.Tensor:
         """
         The projected gravity of the entity's base link, in the entity's local frame.
@@ -141,13 +165,19 @@ class EntityManager(BaseManager):
         """
         The linear velocity of the entity's base link, in the entity's local frame.
         """
-        return transform_by_quat(self.entity.get_vel(), self._inv_base_quat)
-
+        if self._ros_node is not None and self.env.num_envs==1:
+            return transform_by_quat(self._robot_lin_vel, self._inv_base_quat)
+        else:
+            return transform_by_quat(self.entity.get_vel(), self._inv_base_quat)
+        
     def get_angular_velocity(self) -> torch.Tensor:
         """
         The angular velocity of the entity's base link, in the entity's local frame.
         """
-        return transform_by_quat(self.entity.get_ang(), self._inv_base_quat)
+        if self._ros_node is not None and self.env.num_envs==1:
+            return transform_by_quat(self._robot_ang_vel, self._inv_base_quat)
+        else:
+            return transform_by_quat(self.entity.get_ang(), self._inv_base_quat)
 
     """
     Operations.
@@ -194,6 +224,11 @@ class EntityManager(BaseManager):
         """
         Calculate and cache some common values
         """
-        self._base_pos[:] = self.entity.get_pos()
-        self._base_quat[:] = self.entity.get_quat()
-        self._inv_base_quat = inv_quat(self._base_quat)
+        if self._ros_node is None:
+            self._base_pos[:] = self.entity.get_pos()
+            self._base_quat[:] = self.entity.get_quat()
+            self._inv_base_quat = inv_quat(self._base_quat)
+        else:
+            self._base_pos[:] = self._robot_pos
+            self._base_quat[:] = self._robot_quat
+            self._inv_base_quat = inv_quat(self._base_quat)

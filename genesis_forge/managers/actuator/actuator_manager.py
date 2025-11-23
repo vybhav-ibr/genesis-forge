@@ -92,6 +92,7 @@ class ActuatorManager(BaseManager):
         env: GenesisEnv,
         joint_names: list[str] | str = ".*",
         default_pos: float | NoisyValue | dict = {".*": 0.0},
+        control_type: str | NoisyValue | dict = {".*": "position"},
         kp: float | NoisyValue | dict = None,
         kv: float | NoisyValue | dict = None,
         max_force: float | NoisyValue | tuple[Any, Any] | dict = None,
@@ -101,11 +102,13 @@ class ActuatorManager(BaseManager):
         armature: float | NoisyValue | dict = None,
         default_noise_scale: float = 0.0,
         entity_attr: str = "robot",
+        ros_node=None,
     ):
         super().__init__(env, type="actuator")
         self._dofs: dict[str, int] = {}
         self._robot: RigidEntity = getattr(env, entity_attr)
         self._default_pos_cfg = ensure_dof_pattern(default_pos)
+        self._control_type_cfg = ensure_dof_pattern(control_type)
         self._kp_cfg = ensure_dof_pattern(kp)
         self._kv_cfg = ensure_dof_pattern(kv)
         self._max_force_cfg = ensure_dof_pattern(max_force)
@@ -114,11 +117,29 @@ class ActuatorManager(BaseManager):
         self._frictionloss_cfg = ensure_dof_pattern(frictionloss)
         self._armature_cfg = ensure_dof_pattern(armature)
         self._default_noise_scale = default_noise_scale
+        
+        if ros_node is not None:
+            from sensor_msgs.msg import JointState
+            from builtin_interfaces.msg import Time, Clock
+            self._ros_node = ros_node
+            self._ros_clock=Clock()
+            self._setup_joint_action_publisher()
+            self._setup_joint_state_subscriber()
+        else:
+            self._ros_node =None
+        
+        self._pos_actions=[]
+        self._vel_actions=[]
+        self._force_actions=[]
+        self._pos_states=[]
+        self._vel_states=[]
+        self._force_states=[]
 
-        self._batch_dofs_enabled = (
-            env.scene.rigid_options.batch_dofs_info
-            and env.scene.rigid_options.batch_links_info
-        )
+        if ros_node is None:
+            self._batch_dofs_enabled = (
+                env.scene.rigid_options.batch_dofs_info
+                and env.scene.rigid_options.batch_links_info
+            )
 
         self._values: ValueBuffers = {
             "default_pos": None,
@@ -154,6 +175,57 @@ class ActuatorManager(BaseManager):
         Get the indices of the DOF that are enabled (via joint_names).
         """
         return list[int](self._dofs.values())
+    
+    @property
+    def pos_dofs_idx(self) -> list[int]:
+        """
+        Get the indices of the DOF that are enabled (via joint_names).
+        """
+        pos_dofs_idx = []
+        for name, idx in self._dofs.items():
+            control_type = None
+            for pattern, value in self._control_type_cfg.items():
+                if re.match(f"^{pattern}$", name):
+                    control_type = value
+                    break
+            
+            if control_type == "position":
+                pos_dofs_idx.append(idx)
+        return pos_dofs_idx
+    
+    @property
+    def vel_dofs_idx(self) -> list[int]:
+        """
+        Get the indices of the DOF that are enabled (via joint_names).
+        """
+        vel_dofs_idx = []
+        for name, idx in self._dofs.items():
+            control_type = None
+            for pattern, value in self._control_type_cfg.items():
+                if re.match(f"^{pattern}$", name):
+                    control_type = value
+                    break
+            
+            if control_type == "velocity":
+                vel_dofs_idx.append(idx)
+        return vel_dofs_idx
+    
+    @property
+    def force_dofs_idx(self) -> list[int]:
+        """
+        Get the indices of the DOF that are enabled (via joint_names).
+        """
+        force_dofs_idx = []
+        for name, idx in self._dofs.items():
+            control_type = None
+            for pattern, value in self._control_type_cfg.items():
+                if re.match(f"^{pattern}$", name):
+                    control_type = value
+                    break
+            
+            if control_type == "force":
+                force_dofs_idx.append(idx)
+        return force_dofs_idx
 
     @property
     def dofs_names(self) -> list[str]:
@@ -161,6 +233,57 @@ class ActuatorManager(BaseManager):
         Get the names of the configured DOFs.
         """
         return list[str](self._dofs.keys())
+    
+    @property
+    def pos_dofs_names(self) -> list[str]:
+        """
+        Get the names of the configured DOFs with position control.
+        """
+        pos_dofs_names = []
+        for name, _ in self._dofs.items():
+            control_type = None
+            for pattern, value in self._control_type_cfg.items():
+                if re.match(f"^{pattern}$", name):
+                    control_type = value
+                    break
+            
+            if control_type == "position":
+                pos_dofs_names.append(name)
+        return pos_dofs_names
+    
+    @property
+    def vel_dofs_names(self) -> list[str]:
+        """
+        Get the names of the configured DOFs with position control.
+        """
+        vel_dofs_names = []
+        for name, _ in self._dofs.items():
+            control_type = None
+            for pattern, value in self._control_type_cfg.items():
+                if re.match(f"^{pattern}$", name):
+                    control_type = value
+                    break
+            
+            if control_type == "velocity":
+                vel_dofs_names.append(name)
+        return vel_dofs_names
+    
+    @property
+    def force_dofs_names(self) -> list[str]:
+        """
+        Get the names of the configured DOFs with position control.
+        """
+        force_dofs_names = []
+        for name, _ in self._dofs.items():
+            control_type = None
+            for pattern, value in self._control_type_cfg.items():
+                if re.match(f"^{pattern}$", name):
+                    control_type = value
+                    break
+            
+            if control_type == "velocity":
+                force_dofs_names.append(name)
+        return force_dofs_names
 
     @property
     def default_dofs_pos(self) -> torch.Tensor:
@@ -170,12 +293,98 @@ class ActuatorManager(BaseManager):
         return self._values.get("default_pos", {}).get("buffer", None)
 
     @property
-    def join_names(self) -> list[str]:
+    def joint_names(self) -> list[str]:
         """
         Get the names of the joints that are enabled, in the order of the DOF indices.
         """
         return list[str](self._dofs.keys())
-
+    
+    @property
+    def propeller_links_idx(self) -> list[int]:
+        """
+        Get the link_idxs of the propeller links 
+        """
+        return list(self._robot._propellers_link_idxs)
+    
+    @property
+    def num_propellers(self) -> int:
+        """
+        Get the number of propellers of the robot
+        """
+        return int(self._n_propellers)
+    
+    """
+    Ros functions and helpers
+    """
+    def _current_sim_timestep(self):
+        """
+        Get the current sim time
+        """
+        if self._ros_node is not None:
+            timestamp=self._ros_clock.now()
+            return timestamp
+        return None
+    
+    def _setup_joint_action_publisher(self):
+        if self._ros_node is not None:
+            gs.logger.info("Joint actions Publisher started")
+            def joint_action_callback(js_publisher):
+                # pos_dof_names,pos_dof_idx_local=self.joint_names,self.dofs_idx
+                joint_state_msg=JointState()
+                joint_state_msg.header.stamp=self._current_sim_timestep()
+                joint_state_msg.name=self.joint_names
+                joint_state_msg.position=self._pos_actions
+                joint_state_msg.velocity=self._vel_actions
+                joint_state_msg.effort=self._force_actions
+                js_publisher.publish(joint_state_msg)
+            self.joint_state_publisher = self._ros_node.create_publisher(JointState, f'/joint_commands', 50)
+            self.timer = self._ros_node.create_timer(0.01,  lambda: joint_action_callback(self.joint_state_publisher))
+        
+    def _setup_joint_state_subscriber(self):
+        if self._ros_node is not None:
+            gs.logger.info("Joint state Subscriber started")
+            def joint_state_callback(msg,joint_properties):
+                motor_dofs=self.dofs_idx
+                dof_idx_table={}
+                for k,motor_dof in enumerate(motor_dofs):
+                    dof_idx_table[msg.name[k]]=motor_dof
+                valid=True
+                pos_i,vel_i,eff_i=0,0,0
+                pos_vals,pos_dofs=[],[]
+                vel_vals,vel_dofs=[],[]
+                eff_vals,eff_dofs=[],[]
+                for joint,joint_contol_type in joint_properties.items():
+                    if joint_contol_type =="position":
+                        pos_vals.append(msg.position[pos_i])
+                        pos_dofs.append(dof_idx_table[joint])
+                        pos_i+=1
+                    elif joint_contol_type =="velocity":
+                        vel_vals.append(msg.velocity[vel_i])
+                        vel_dofs.append(dof_idx_table[joint])
+                        vel_i+=1
+                    elif joint_contol_type =='force':
+                        eff_vals.append(msg.effort[eff_i])
+                        eff_dofs.append(dof_idx_table[joint])
+                        eff_i+=1
+                    else:
+                        gs.logger.warning("Invalid joint command type")
+                        raise ValueError("Invalid joint command type")
+                if valid:
+                    self._pos_state=pos_vals
+                    self._vel_state=vel_vals
+                    self._force_state=eff_vals
+            joint_properties = {}
+            for name, _ in self._dofs.items():
+                control_type = None
+                for pattern, value in self._control_type_cfg.items():
+                    if re.match(f"^{pattern}$", name):
+                        control_type = value
+                        break
+                
+                    joint_properties[name] = control_type
+            self._ros_node.create_subscription(JointState,
+                                                f'joint_states',
+                                                lambda: joint_state_callback(joint_properties),100)
     """
     Actuator handlers
     """
@@ -188,7 +397,10 @@ class ActuatorManager(BaseManager):
         Args:
             noise: The maximum amount of random noise to add to the position values returned.
         """
-        pos = self._robot.get_dofs_position(self.dofs_idx)
+        if self._ros_node is not None and self.env.num_envs==1:
+            pos=self._pos_states
+        else:
+            pos = self._robot.get_dofs_position(self.dofs_idx)
         if noise > 0.0:
             pos = self._add_random_noise(pos, noise)
         return pos
@@ -202,7 +414,10 @@ class ActuatorManager(BaseManager):
             noise: The maximum amount of random noise to add to the velocity values returned.
             clip: Clip the velocity returned.
         """
-        vel = self._robot.get_dofs_velocity(self.dofs_idx)
+        if self._ros_node is not None and self.env.num_envs==1:
+            vel=self._vel_states
+        else:
+            vel = self._robot.get_dofs_velocity(self.dofs_idx)
         if noise > 0.0:
             vel = self._add_random_noise(vel, noise)
         if clip is not None:
@@ -221,7 +436,10 @@ class ActuatorManager(BaseManager):
         Returns:
             The force experienced by the enabled DOFs.
         """
-        force = self._robot.get_dofs_force(self.dofs_idx)
+        if self._ros_node is not None and self.env.num_envs==1:
+            force=self._force_states
+        else:
+            force = self._robot.get_dofs_force(self.dofs_idx)
         if noise > 0.0:
             force = self._add_random_noise(force, noise)
         if clip_to_max_force:
@@ -239,6 +457,17 @@ class ActuatorManager(BaseManager):
             Each tensor is of shape (num_envs, num_dofs).
         """
         return self._robot.get_dofs_limit(self.dofs_idx)
+    
+    def get_dofs_force_limits(self) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Return the force limits of the configured DOFs.
+        This is a wrapper for `RigidEntity.get_dofs_force_range`.
+
+        Returns:
+            A tuple of two tensors, the first is the lower limits and the second is the upper limits.
+            Each tensor is of shape (num_envs, num_dofs).
+        """
+        return self._robot.get_dofs_force_range(self.dofs_idx)
 
     def set_dofs_position(self, position: torch.Tensor):
         """
@@ -260,7 +489,98 @@ class ActuatorManager(BaseManager):
             position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
                       (see: `dofs_names` and `dofs_idx` properties).
         """
-        self._robot.control_dofs_position(position, self.dofs_idx)
+        if self.pos_dofs_idx is not None and len(self.pos_dofs_idx) > 0:
+            self._robot.control_dofs_position(position, self.pos_dofs_idx)
+            
+    def publish_dofs_position(self, position: torch.Tensor):
+        """
+        Publish the position of the configured DOFs in a joint state message.
+
+        Args:
+            position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        if self.pos_dofs_idx is not None and len(self.pos_dofs_idx) > 0:
+            self._pos_actions=position.tolist()
+        
+    def set_dofs_velocity(self, velocity: torch.Tensor):
+        """
+        Set the velocity of the configured DOFs.
+        This is a wrapper for `RigidEntity.set_dofs_velocity`.
+
+        Args:
+            position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        self._robot.set_dofs_velocity(velocity, self.dofs_idx)
+
+    def control_dofs_velocity(self, velocity: torch.Tensor):
+        """
+        Control the velocity of the configured DOFs.
+        This is a wrapper for `RigidEntity.control_dofs_velocity`.
+
+        Args:
+            velocity: The velocity to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        if self.vel_dofs_idx is not None and len(self.vel_dofs_idx) > 0:
+            self._robot.control_dofs_velocity(velocity, self.vel_dofs_idx)
+    
+    def publish_dofs_velocity(self, velocity: torch.Tensor):
+        """
+        Publish the velocity of the configured DOFs in a joint state message.
+
+        Args:
+            position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        if self.vel_dofs_idx is not None and len(self.vel_dofs_idx) > 0:
+            self._vel_actions=velocity.tolist()
+            
+    def set_dofs_force(self, force: torch.Tensor):
+        """
+        Set the force of the configured DOFs.
+        This is a wrapper for `RigidEntity.set_dofs_force`.
+
+        Args:
+            position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        self._robot.set_dofs_force(force, self.dofs_idx)
+
+    def control_dofs_force(self, force: torch.Tensor):
+        """
+        Control the force of the configured DOFs.
+        This is a wrapper for `RigidEntity.control_dofs_force`.
+
+        Args:
+            force: The force to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        if self.vel_dofs_idx is not None and len(self.vel_dofs_idx) > 0:
+            self._robot.control_dofs_force(force, self.vel_dofs_idx)
+    
+    def publish_dofs_force(self, force: torch.Tensor):
+        """
+        Publish the force of the configured DOFs in a joint state message.
+
+        Args:
+            position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
+                      (see: `dofs_names` and `dofs_idx` properties).
+        """
+        if self.vel_dofs_idx is not None and len(self.vel_dofs_idx) > 0:
+            self._vel_actions=force.tolist()
+            
+    def set_propellels_rpm(self, rpm: torch.Tensor):
+        """
+        Set the propellers's rpm 
+        
+        Args:
+            rpm: The rpm to set the propellers to. This function expects the rpm for all the propellers 
+        """
+        self._robot.set_propellels_rpm(rpm) 
+
+        
 
     """
     Lifecycle operations
@@ -272,7 +592,7 @@ class ActuatorManager(BaseManager):
         """
         # Find all configured joints by names/patterns
         for joint in self._robot.joints:
-            if joint.type != gs.JOINT_TYPE.REVOLUTE:
+            if joint.type != gs.JOINT_TYPE.REVOLUTE and joint.type != gs.JOINT_TYPE.PRISMATIC:
                 continue
             name = joint.name
             for pattern in self._joint_name_cfg:

@@ -5,6 +5,7 @@ import torch
 import genesis as gs
 
 from genesis_forge.genesis_env import GenesisEnv
+from genesis_forge.ros2_env import Ros2Env
 from genesis_forge.managers.base import BaseManager
 from genesis_forge.gamepads import Gamepad
 
@@ -62,7 +63,7 @@ class CommandManager(BaseManager):
 
     def __init__(
         self,
-        env: GenesisEnv,
+        env: GenesisEnv| Ros2Env,
         range: CommandRange,
         resample_time_sec: float = 5.0,
     ):

@@ -383,8 +383,7 @@ class ManagedEnvironment(GenesisEnv):
         If you use the ObservationManager, this will be handled automatically.
         Otherwise, override this method to return the observations.
         """
-        self.extras["observations"] = self._observations_buf
-        self._observations_buf.clear()
+        self.extras["observations"] = TensorDict({}, device=gs.device)
 
         # Get observations
         if len(self.managers["observation"]) > 0:

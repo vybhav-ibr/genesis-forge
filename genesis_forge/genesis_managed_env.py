@@ -1,9 +1,9 @@
+from onnx.defs import has
 import torch
 from typing import Any, TypedDict
 from gymnasium import spaces
-import genesis as gs
 from tensordict import TensorDict
-from genesis_forge.genesis_env import GenesisEnv
+from genesis_forge.genesis_env import GenesisEnv,EnvMode
 from genesis_forge.managers.base import BaseManager, ManagerType
 from genesis_forge.managers import (
     ContactManager,
@@ -30,7 +30,7 @@ class ManagersDict(TypedDict):
     termination: TerminationManager | None
 
 
-class ManagedEnvironment(GenesisEnv):
+class GenesisManagedEnvironment(GenesisEnv):
     """
     An environment which moves a lot of the logic of the environment to manager classes.
     This helps to keep the environment code clean and modular.
@@ -44,7 +44,7 @@ class ManagedEnvironment(GenesisEnv):
 
     Example::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
 
@@ -119,6 +119,7 @@ class ManagedEnvironment(GenesisEnv):
         max_episode_length_sec: int | None = 10,
         max_episode_random_scaling: float = 0.0,
         extras_logging_key: str = "episode",
+        env_mode: str = "train",
     ):
         super().__init__(
             num_envs=num_envs,
@@ -126,13 +127,14 @@ class ManagedEnvironment(GenesisEnv):
             max_episode_length_sec=max_episode_length_sec,
             max_episode_random_scaling=max_episode_random_scaling,
             extras_logging_key=extras_logging_key,
+            env_mode=env_mode,
         )
-
         self.managers: ManagersDict = {
             "contact": [],
             "entity": [],
             "command": [],
             "terrain": [],
+
             # there can only be one of each of these
             "actuator": None,
             "action": None,
@@ -144,15 +146,16 @@ class ManagedEnvironment(GenesisEnv):
         self._action_space = None
         self._observation_space = None
         self._reward_buf = torch.zeros(
-            (self.num_envs,), device=gs.device, dtype=gs.tc_float
+            (self.num_envs,), device=self.device, dtype=self.float_type
         )
         self._terminated_buf = torch.zeros(
-            (self.num_envs,), device=gs.device, dtype=gs.tc_bool
+            (self.num_envs,), device=self.device, dtype=self.bool_type
         )
         self._truncated_buf = torch.zeros(
-            (self.num_envs,), device=gs.device, dtype=gs.tc_bool
+            (self.num_envs,), device=self.device, dtype=self.bool_type
         )
-        self._observations_buf = TensorDict({}, device=gs.device)
+
+        self.config_set = False
 
     """
     Properties
@@ -256,7 +259,9 @@ class ManagedEnvironment(GenesisEnv):
         The Genesis scene and all the scene entities must be added before calling this method.
         """
         super().build()
-        self.config()
+        if not self.config_set:
+            self.config()
+            self.config_set=True
 
         for terrain_manager in self.managers["terrain"]:
             terrain_manager.build()
@@ -264,12 +269,16 @@ class ManagedEnvironment(GenesisEnv):
             self.managers["actuator"].build()
         if self.managers["action"] is not None:
             self.managers["action"].build()
+        
         for contact_manager in self.managers["contact"]:
             contact_manager.build()
-        if self.managers["termination"] is not None:
-            self.managers["termination"].build()
-        if self.managers["reward"] is not None:
-            self.managers["reward"].build()
+        
+        if self.env_mode!=EnvMode.PLAY and self.env_mode!=EnvMode.DEPLOY:
+            if self.managers["termination"] is not None:
+                self.managers["termination"].build()
+            if self.managers["reward"] is not None:
+                self.managers["reward"].build()
+        
         for command_manager in self.managers["command"]:
             command_manager.build()
         for entity_manager in self.managers["entity"]:
@@ -278,7 +287,7 @@ class ManagedEnvironment(GenesisEnv):
             obs.build()
 
     def step(
-        self, actions: torch.Tensor
+        self, actions: torch.Tensor,
     ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor, dict[str, Any]]:
         """
         Performs a step in all environments with the given actions.
@@ -290,11 +299,14 @@ class ManagedEnvironment(GenesisEnv):
             Batch of (observations, rewards, terminations, truncations, extras)
         """
         super().step(actions)
+        self.extras["observations"] = TensorDict({}, device=self.device)
 
         # Execute the actions and a simulation step
         if self.managers["action"] is not None:
             self.managers["action"].step(actions)
-        self.scene.step()
+        
+        if hasattr(self, "scene"):
+            self.scene.step()
 
         # Update entity managers
         for entity_manager in self.managers["entity"]:
@@ -304,20 +316,26 @@ class ManagedEnvironment(GenesisEnv):
         for contact_manager in self.managers["contact"]:
             contact_manager.step()
 
-        # Calculate termination and truncation
-        reset_env_idx = None
-        truncated = self._truncated_buf
-        terminated = self._terminated_buf
-        if self.managers["termination"] is not None:
-            terminated, truncated = self.managers["termination"].step()
-            reset_env_idx = (
-                (terminated | truncated).nonzero(as_tuple=False).reshape((-1,)).detach()
-            )
+        if self.env_mode!=EnvMode.PLAY and self.env_mode!=EnvMode.DEPLOY:
+            # Calculate termination and truncation
+            reset_env_idx = None
+            truncated = self._truncated_buf
+            terminated = self._terminated_buf
+            if self.managers["termination"] is not None:
+                terminated, truncated = self.managers["termination"].step()
+                reset_env_idx = (
+                    (terminated | truncated).nonzero(as_tuple=False).reshape((-1,)).detach()
+                )
 
-        # Calculate rewards
-        rewards = self._reward_buf
-        if self.managers["reward"] is not None:
-            rewards = self.managers["reward"].step()
+            # Calculate rewards
+            rewards = self._reward_buf
+            if self.managers["reward"] is not None:
+                rewards = self.managers["reward"].step()
+        else:
+            reset_env_idx = None
+            truncated = self._truncated_buf
+            terminated = self._terminated_buf
+            rewards = self._reward_buf
 
         # Command managers
         for command_manager in self.managers["command"]:
@@ -329,7 +347,6 @@ class ManagedEnvironment(GenesisEnv):
 
         # Get observations
         obs = self.get_observations()
-
         return (
             obs,
             rewards,
@@ -383,10 +400,17 @@ class ManagedEnvironment(GenesisEnv):
         If you use the ObservationManager, this will be handled automatically.
         Otherwise, override this method to return the observations.
         """
-        self.extras["observations"] = TensorDict({}, device=gs.device)
-
-        # Get observations
         if len(self.managers["observation"]) > 0:
+            # We already have observations for this step
+            if (
+                "observations" in self.extras
+                and "policy" in self.extras["observations"]
+            ):
+                return self.extras["observations"]["policy"]
+            if "observations" not in self.extras:
+                self.extras["observations"] = TensorDict({}, device=self.device)
+
+            # Get observations
             policy_obs = None
             for obs_manager in self.managers["observation"]:
                 obs = obs_manager.get_observations()
@@ -395,5 +419,4 @@ class ManagedEnvironment(GenesisEnv):
                     policy_obs = obs
             return policy_obs
 
-        # Otherwise, call super
         return super().get_observations()

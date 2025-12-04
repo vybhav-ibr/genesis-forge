@@ -1,7 +1,6 @@
 from typing import Any, TypeVar, Sequence
 
 import torch
-import genesis as gs
 from gymnasium import spaces
 from genesis_forge.genesis_env import GenesisEnv
 
@@ -43,7 +42,7 @@ class Wrapper:
         return self.env.num_envs
 
     @property
-    def scene(self) -> gs.Scene:
+    def scene(self) -> Any:
         """Get the environment scene."""
         return self.env.scene
 

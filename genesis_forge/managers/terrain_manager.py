@@ -24,7 +24,7 @@ class TerrainManager(BaseManager):
 
     Example::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
 
@@ -73,18 +73,18 @@ class TerrainManager(BaseManager):
         self._subterrain_bounds = {}
         self._height_field: torch.Tensor | None = None
         self._env_pos_buffer = torch.zeros(
-            (self.env.num_envs, 3), device=gs.device, dtype=gs.tc_float
+            (self.env.num_envs, 3), device=self.env.device, dtype=self.env.float_type
         )
 
         # Pre-allocated buffers for terrain height calculation to avoid memory allocations
         self._norm_coords_buffer = torch.zeros(
-            (self.env.num_envs, 2), device=gs.device, dtype=gs.tc_float
+            (self.env.num_envs, 2), device=self.env.device, dtype=self.env.float_type
         )
         self._grid_buffer = torch.zeros(
-            (self.env.num_envs, 1, 1, 2), device=gs.device, dtype=gs.tc_float
+            (self.env.num_envs, 1, 1, 2), device=self.env.device, dtype=self.env.float_type
         )
         self._heights_buffer = torch.zeros(
-            self.env.num_envs, device=gs.device, dtype=gs.tc_float
+            self.env.num_envs, device=self.env.device, dtype=self.env.float_type
         )
 
     def build(self):
@@ -148,7 +148,7 @@ class TerrainManager(BaseManager):
 
         # Border padding mode isn't supported on Mac GPU (mps)
         # https://github.com/pytorch/pytorch/issues/125098
-        if gs.device.type == "mps":
+        if self.env.device.type == "mps":
             padding_mode = "zeros"
             grid.clamp_(-1, 1)
         else:
@@ -204,11 +204,11 @@ class TerrainManager(BaseManager):
             output is not None or num is not None
         ), "Either output or num must be provided"
         if output is None:
-            output = torch.zeros(num, 3, device=gs.device)
+            output = torch.zeros(num, 3, device=self.env.device)
         if out_idx is None:
-            out_idx = torch.arange(output.shape[0], device=gs.device)
+            out_idx = torch.arange(output.shape[0], device=self.env.device)
         elif isinstance(out_idx, list):
-            out_idx = torch.tensor(out_idx, device=gs.device, dtype=torch.long)
+            out_idx = torch.tensor(out_idx, device=self.env.device, dtype=torch.long)
         if num is None:
             num = out_idx.shape[0]
 
@@ -235,8 +235,8 @@ class TerrainManager(BaseManager):
         y_max = y_origin + y_size - buffer_y_size
 
         # Generate random positions
-        x_rand = torch.empty(num, device=gs.device, dtype=gs.tc_float)
-        y_rand = torch.empty(num, device=gs.device, dtype=gs.tc_float)
+        x_rand = torch.empty(num, device=self.env.device, dtype=self.env.float_type)
+        y_rand = torch.empty(num, device=self.env.device, dtype=self.env.float_type)
         x_rand.uniform_(x_min, x_max)
         y_rand.uniform_(y_min, y_max)
 
@@ -274,9 +274,9 @@ class TerrainManager(BaseManager):
             The position tensor of shape (1, 3)
         """
         if envs_idx is None:
-            envs_idx = torch.arange(self.env.num_envs, device=gs.device)
+            envs_idx = torch.arange(self.env.num_envs, device=self.env.device)
         elif isinstance(envs_idx, list):
-            envs_idx = torch.tensor(envs_idx, device=gs.device, dtype=torch.long)
+            envs_idx = torch.tensor(envs_idx, device=self.env.device, dtype=torch.long)
 
         # Update the position buffer in-place
         self.generate_random_positions(
@@ -358,7 +358,7 @@ class TerrainManager(BaseManager):
             height_field = terrain_geom.metadata["height_field"]
             vertical_scale = morph.vertical_scale
             self._height_field = torch.as_tensor(
-                height_field, device=gs.device, dtype=gs.tc_float
+                height_field, device=self.env.device, dtype=self.env.float_type
             )
 
             # Adjust for the vertical scale

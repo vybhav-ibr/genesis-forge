@@ -1,14 +1,22 @@
 from __future__ import annotations
 import math
 import torch
-import genesis as gs
+try:
+    import genesis as gs
+except ImportError:
+    print("Genesis module not found, if your wish to train, eval or play us ethe appropriatere env_mode")
 from gymnasium import spaces
-from typing import Any, Literal, TYPE_CHECKING
+from typing import Any, TYPE_CHECKING
+from enum import Enum
 
 if TYPE_CHECKING:
     from genesis.engine.entities import RigidEntity
 
-EnvMode = Literal["train", "eval", "play"]
+class EnvMode(str, Enum):
+    TRAIN = "train"
+    EVAL = "eval"
+    PLAY = "play"
+    DEPLOY = "deploy"
 
 
 class GenesisEnv:
@@ -58,13 +66,31 @@ class GenesisEnv:
         max_episode_length_sec: int | None = 10,
         max_episode_random_scaling: float = 0.0,
         extras_logging_key: str = "episode",
+        env_mode: str="train"
     ):
+        self.env_mode = EnvMode(env_mode)
         self.dt = dt
-        self.device = gs.device
-        self.num_envs = num_envs
-        self.scene: gs.Scene = None
-        self.robot: RigidEntity = None
-        self.terrain: RigidEntity = None
+        if self.env_mode!=EnvMode.DEPLOY:
+            self.device = gs.device
+            self.float_type=gs.tc_float
+            self.int_type=gs.tc_int
+            self.bool_type=gs.tc_bool
+            self.REVOLUTE_JOINT_TYPE = gs.JOINT_TYPE.REVOLUTE
+            self.PRISMATIC_JOINT_TYPE = gs.JOINT_TYPE.PRISMATIC
+            self.num_envs = num_envs
+            self.scene: gs.Scene = None
+            self.robot: RigidEntity = None
+            self.terrain: RigidEntity = None
+        else:
+            self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+            # print("device at init",self.device)
+            # exit(0)
+            self.float_type=torch.float32
+            self.int_type=torch.int32
+            self.bool_type=torch.bool
+            if num_envs!=1:
+                print(f"num_envs must be 1 for env_mode=deploy, but was given {num_envs}, it will be modified to 1")
+            self.num_envs = 1
 
         self.extras_logging_key = extras_logging_key
         self._extras = {}
@@ -75,7 +101,7 @@ class GenesisEnv:
 
         self.step_count: int = 0
         self.episode_length = torch.zeros(
-            (self.num_envs,), device=gs.device, dtype=torch.int32
+            (self.num_envs,), device=self.device, dtype=self.int_type
         )
         self.max_episode_length: torch.Tensor = None
 
@@ -84,7 +110,7 @@ class GenesisEnv:
         self._max_episode_random_scaling = max_episode_random_scaling
         if max_episode_length_sec and max_episode_length_sec > 0:
             self.max_episode_length = torch.zeros(
-                (self.num_envs,), device=gs.device, dtype=gs.tc_int
+                (self.num_envs,), device=self.device, dtype=self.int_type
             )
             self.max_episode_length[:] = self.set_max_episode_length(
                 max_episode_length_sec
@@ -175,10 +201,11 @@ class GenesisEnv:
         Builds the environment before the first step.
         The Genesis scene and all the scene entities must be added before calling this method.
         """
-        assert (
-            self.scene is not None
-        ), "The scene must be constructed and assigned to the <env>.scene attribute before building."
-        self.scene.build(n_envs=self.num_envs)
+        if hasattr(self,"scene"):
+            assert (
+                self.scene is not None
+            ), "The scene must be constructed and assigned to the <env>.scene attribute before building."
+            self.scene.build(n_envs=self.num_envs)
 
     def step(
         self, actions: torch.Tensor
@@ -198,11 +225,11 @@ class GenesisEnv:
         self.episode_length += 1
 
         if self._actions is None:
-            self._actions = torch.zeros_like(actions, device=gs.device)
-            self._last_actions = torch.zeros_like(actions, device=gs.device)
-
-        self._last_actions[:] = self._actions[:]
-        self._actions[:] = actions[:]
+            self._actions = actions.detach().clone()
+            self._last_actions = torch.zeros_like(actions, device=self.device)
+        else:
+            self._last_actions[:] = self._actions[:]
+            self._actions[:] = actions[:]
 
         return None, None, None, None, self._extras
 
@@ -221,16 +248,16 @@ class GenesisEnv:
             A batch of observations and info from the vectorized environment.
         """
         if envs_idx is None:
-            envs_idx = torch.arange(self.num_envs, device=gs.device)
+            envs_idx = torch.arange(self.num_envs, device=self.device)
 
         # Initial reset, set buffers
         if self.step_count == 0 and self.action_space is not None:
             self._actions = torch.zeros(
                 (self.num_envs, self.action_space.shape[0]),
-                device=gs.device,
-                dtype=gs.tc_float,
+                device=self.device,
+                dtype=self.float_type,
             )
-            self._last_actions = torch.zeros_like(self._actions, device=gs.device)
+            self._last_actions = torch.zeros_like(self.actions, device=self.device)
 
         # Actions
         if envs_idx.numel() > 0:
@@ -256,7 +283,7 @@ class GenesisEnv:
             )
             self.max_episode_length[envs_idx] = torch.round(
                 self._base_max_episode_length + randomization
-            ).to(gs.tc_int)
+            ).to(self.int_type)
 
         return None, self.extras
 
@@ -283,8 +310,8 @@ class GenesisEnv:
         if self.observation_space is not None:
             return torch.zeros(
                 (self.num_envs, self.observation_space.shape[0]),
-                device=gs.device,
-                dtype=gs.tc_float,
+                device=self.device,
+                dtype=self.float_type,
             )
         return None
 

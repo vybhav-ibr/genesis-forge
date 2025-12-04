@@ -33,9 +33,9 @@ class RewardManager(BaseManager):
         logging_enabled: Whether to log the rewards to tensorboard.
         logging_tag: The section name used to log the rewards to tensorboard.
 
-    Example with ManagedEnvironment::
+    Example with GenesisManagedEnvironment::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def config(self):
                 self.reward_manager = RewardManager(
                     self,
@@ -105,16 +105,16 @@ class RewardManager(BaseManager):
 
         # Initialize buffers
         self._reward_buf = torch.zeros(
-            (env.num_envs,), device=gs.device, dtype=gs.tc_float
+            (env.num_envs,), device=self.env.device, dtype=self.env.float_type
         )
         self._episode_seconds = torch.zeros(
-            (self.env.num_envs,), device=gs.device, dtype=gs.tc_float
+            (self.env.num_envs,), device=self.env.device, dtype=self.env.float_type
         )
         self._episode_mean: dict[str, torch.Tensor] = dict()
         self._episode_data: dict[str, torch.Tensor] = dict()
         for name in self.cfg.keys():
             self._episode_data[name] = torch.zeros(
-                (env.num_envs,), device=gs.device, dtype=gs.tc_float
+                (env.num_envs,), device=self.env.device, dtype=self.env.float_type
             )
 
     @property
@@ -197,7 +197,7 @@ class RewardManager(BaseManager):
     def reset(self, envs_idx: list[int] | None = None):
         """Log the reward mean values at the end of the episode"""
         if envs_idx is None:
-            envs_idx = torch.arange(self.env.num_envs, device=gs.device)
+            envs_idx = torch.arange(self.env.num_envs, device=self.env.device)
 
         if self.enabled and self.logging_enabled:
             logging_dict = self.env.extras[self.env.extras_logging_key]

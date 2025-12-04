@@ -24,7 +24,7 @@ class RslRlWrapper(Wrapper):
 
     def __init__(self, env: GenesisEnv):
         super().__init__(env)
-
+        self._device = env.device
         self.rsl3 = False
         try:
             major_version = int(metadata.version("rsl-rl-lib").split(".")[0])
@@ -35,7 +35,7 @@ class RslRlWrapper(Wrapper):
 
     @property
     def device(self) -> str:
-        return gs.device
+        return self._device
 
     def step(
         self, actions: torch.Tensor
@@ -111,11 +111,11 @@ class RslRlWrapper(Wrapper):
                 if isinstance(extras["observations"], TensorDict):
                     obs = extras["observations"]
                 else:
-                    obs = TensorDict(extras["observations"], device=gs.device)
+                    obs = TensorDict(extras["observations"], device=self.env.device)
             else:
                 obs = TensorDict(
                     {"policy": obs},
                     batch_size=[obs.shape[0]],
-                    device=gs.device,
+                    device=self.env.device,
                 )
         return obs

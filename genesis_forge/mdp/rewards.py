@@ -278,7 +278,7 @@ def action_rate_l2(env: GenesisEnv) -> torch.Tensor:
     actions = env.actions
     last_actions = env.last_actions
     if last_actions is None:
-        return torch.zeros_like(actions, device=gs.device)
+        return torch.zeros_like(actions, device=self.env.device)
     return torch.sum(torch.square(last_actions - actions), dim=1)
 
 

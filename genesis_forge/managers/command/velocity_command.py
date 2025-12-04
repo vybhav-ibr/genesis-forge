@@ -1,4 +1,3 @@
-import math
 from typing import Tuple, TypedDict
 
 import os
@@ -6,10 +5,14 @@ import torch
 import genesis as gs
 
 from genesis_forge.genesis_env import GenesisEnv
-from genesis_forge.utils import transform_by_quat
+
+from genesis_forge.utils import entity_lin_vel, transform_by_quat
 from genesis_forge.gamepads import Gamepad
 
 from .command_manager import CommandManager, CommandRangeValue
+
+
+THIS_DIR = os.path.dirname(os.path.abspath(__file__))
 
 
 class VelocityCommandRange(TypedDict):
@@ -39,18 +42,14 @@ class VelocityDebugVisualizerConfig(TypedDict):
     actual_color: Tuple[float, float, float, float]
     """The color of the actual robot velocity arrow"""
 
-    fps: int
-    """The FPS of the debug visualization. Lower FPS means fewer frames are rendered, saving GPU memory."""
-
 
 DEFAULT_VISUALIZER_CONFIG: VelocityDebugVisualizerConfig = {
     "envs_idx": None,
-    "arrow_offset": 0.12,
+    "arrow_offset": 0.03,
     "arrow_radius": 0.02,
     "arrow_max_length": 0.15,
     "commanded_color": (0.0, 0.5, 0.0, 1.0),
     "actual_color": (0.0, 0.0, 0.5, 1.0),
-    "fps": 30,
 }
 
 
@@ -147,7 +146,7 @@ class VelocityCommandManager(CommandManager):
         self.debug_envs_idx = None
 
         self._is_standing_env = torch.zeros(
-            env.num_envs, dtype=torch.bool, device=gs.device
+            env.num_envs, dtype=torch.bool, device=self.env.device
         )
 
     """
@@ -162,55 +161,32 @@ class VelocityCommandManager(CommandManager):
         if not self.enabled:
             return
 
-        # Set standing environments
-        rand_buffer = torch.empty(len(env_ids), device=gs.device).uniform_(0.0, 1.0)
-        self._is_standing_env[env_ids] = rand_buffer <= self.standing_probability
+        num = torch.empty(len(env_ids), device=self.env.device)
+        self._is_standing_env[env_ids] = (
+            num.uniform_(0.0, 1.0) <= self.standing_probability
+        )
         standing_envs_idx = self._is_standing_env.nonzero(as_tuple=False).flatten()
         self._command[standing_envs_idx, :] = 0.0
 
     def build(self):
         """Build the velocity command manager"""
         super().build()
-        self.build_debug()
-
-    def build_debug(self):
-        """Build the debug components of the velocity command manager"""
-        if not self.debug_visualizer or self.visualizer_cfg is None:
-            return
-
-        # Pre-allocate buffers
-        self._arrow_pos_buffer = torch.zeros(self.env.num_envs, 3, device=gs.device)
-        self._actual_vec_buffer = torch.zeros(self.env.num_envs, 3, device=gs.device)
-        self._vec_3d_buffer = torch.zeros(self.env.num_envs, 3, device=gs.device)
-        self._scene_env_offset = torch.from_numpy(self.env.scene.envs_offset).to(
-            gs.device
-        )
 
         # If debug envs_idx is not set, attempt to use the vis_options rendered_envs_idx
-        self.debug_envs_idx = self.visualizer_cfg.get("envs_idx", None)
-        if self.debug_envs_idx is None and self.env.scene.vis_options is not None:
-            self.debug_envs_idx = self.env.scene.vis_options.rendered_envs_idx
-        if self.debug_envs_idx is None:
-            self.debug_envs_idx = list[int](range(self.env.num_envs))
-
-        # Calculate the number of steps per debug render
-        fps = self.visualizer_cfg.get("fps", 30)
-        self._steps_per_debug_render = math.ceil(1.0 / fps / self.env.dt)
-
-        # Arrow scale factor
-        # Scales the arrow size based on the maximum target velocity range
-        self._arrow_scale_factor = self.visualizer_cfg["arrow_max_length"] / max(
-            *self._range["lin_vel_x"],
-            *self._range["lin_vel_y"],
-            *self._range["ang_vel_z"],
-        )
+        if self.env.scene is not None:
+            self.debug_envs_idx = self.visualizer_cfg.get("envs_idx", None)
+            if self.debug_envs_idx is None and self.env.scene.vis_options is not None:
+                self.debug_envs_idx = self.env.scene.vis_options.rendered_envs_idx
+            if self.debug_envs_idx is None:
+                self.debug_envs_idx = list[int](range(self.env.num_envs))
 
     def step(self):
         """Render the command arrows"""
         if not self.enabled:
             return
         super().step()
-        self._render_arrows()
+        if self.env.scene is not None:
+            self._render_arrows()
 
     def use_gamepad(
         self,
@@ -248,12 +224,7 @@ class VelocityCommandManager(CommandManager):
         The commanded velocity arrow (green) shows the robot-relative velocity command
         transformed to world coordinates for visualization. The blue arrow is the robot's actual velocity.
         """
-        # Is the debug visualizer enabled?
-        if not self.debug_visualizer or len(self.debug_envs_idx) == 0:
-            return
-
-        # Don't update for every step
-        if self.env.step_count % self._steps_per_debug_render != 0:
+        if not self.debug_visualizer:
             return
 
         # Remove existing arrows
@@ -261,34 +232,58 @@ class VelocityCommandManager(CommandManager):
             self.env.scene.clear_debug_object(arrow)
         self._arrow_nodes = []
 
-        # Calculate the arrow position over the robot
-        self._arrow_pos_buffer[:] = self.env.robot.get_pos()
-        self._arrow_pos_buffer[:, 2] += self.visualizer_cfg["arrow_offset"]
-        self._arrow_pos_buffer += self._scene_env_offset
+        # Scale the arrow size based on the maximum target velocity range
+        scale_factor = self.visualizer_cfg["arrow_max_length"] / max(
+            *self._range["lin_vel_x"],
+            *self._range["lin_vel_y"],
+            *self._range["ang_vel_z"],
+        )
+
+        # Calculate the center of the robot
+        aabb = self.env.robot.get_AABB()
+        min_aabb = aabb[:, 0]  # [min_x, min_y, min_z]
+        max_aabb = aabb[:, 1]  # [max_x, max_y, max_z]
+        robot_x = (min_aabb[:, 0] + max_aabb[:, 0]) / 2
+        robot_y = (min_aabb[:, 1] + max_aabb[:, 1]) / 2
+        robot_z = max_aabb[:, 2]
+
+        # Set the arrow position over the center of the robot
+        arrow_pos = torch.zeros(self.env.num_envs, 3, device=self.env.device)
+        arrow_pos[:, 0] = robot_x
+        arrow_pos[:, 1] = robot_y
+        arrow_pos[:, 2] = robot_z + self.visualizer_cfg["arrow_offset"]
+        arrow_pos += torch.from_numpy(self.env.scene.envs_offset).to(self.env.device)
+
+        # Get robot orientation (quaternion) for coordinate transformation
+        robot_quat = self.env.robot.get_quat()
 
         # Transform robot-relative velocity commands to world coordinates for visualization
-        target_velocity = self._target_velocity_in_world_frame()
+        target_velocity = self._resolve_xy_velocity_to_world_frame(
+            self.command[:, :2], robot_quat, scale_factor
+        )
 
         # Actual robot velocity (already in world coordinates)
-        self._actual_vec_buffer[:] = self.env.robot.get_vel() * self._arrow_scale_factor
-        self._actual_vec_buffer[:, 2] = 0.0
+        actual_vec = self.env.robot.get_vel().clone()
+        actual_vec[:, 2] = 0.0
+        actual_vec[:, :] *= scale_factor
 
         for i in self.debug_envs_idx:
             # Target arrow (robot-relative command transformed to world coordinates for visualization)
             self._draw_arrow(
-                pos=self._arrow_pos_buffer[i],
+                pos=arrow_pos[i],
                 vec=target_velocity[i],
                 color=self.visualizer_cfg["commanded_color"],
             )
-
             # Actual arrow
             self._draw_arrow(
-                pos=self._arrow_pos_buffer[i],
-                vec=self._actual_vec_buffer[i],
+                pos=arrow_pos[i],
+                vec=actual_vec[i],
                 color=self.visualizer_cfg["actual_color"],
             )
 
-    def _target_velocity_in_world_frame(self) -> torch.Tensor:
+    def _resolve_xy_velocity_to_world_frame(
+        self, xy_velocity: torch.Tensor, robot_quat: torch.Tensor, scale_factor: float
+    ) -> torch.Tensor:
         """
         Converts robot-relative XY velocity commands to world coordinates for visualization.
 
@@ -297,20 +292,24 @@ class VelocityCommandManager(CommandManager):
         2. Transforms them to world coordinates using the robot's current orientation
         3. Scales them for visualization
 
+        Args:
+            xy_velocity: Robot-relative velocity commands in base frame, shape (num_envs, 2)
+            robot_quat: Robot's current orientation quaternion, shape (num_envs, 4)
+            scale_factor: Scaling factor for visualization
+
         Returns:
             World-frame velocity vectors scaled for visualization, shape (num_envs, 3)
         """
         # Create 3D velocity tensor with Z component zeroed for 2D visualization
-        self._vec_3d_buffer[:, :2] = self.command[:, :2]
-        self._vec_3d_buffer[:, 2] = 0.0
+        vec_3d = torch.zeros(xy_velocity.shape[0], 3, device=xy_velocity.device)
+        vec_3d[:, :2] = xy_velocity
 
         # Transform from robot-relative (base) frame to world frame using quaternion
         # This is the inverse of what robot_lin_vel does
-        robot_quat = self.env.robot.get_quat()
-        vec_world = transform_by_quat(self._vec_3d_buffer, robot_quat)
+        vec_world = transform_by_quat(vec_3d, robot_quat)
 
         # Scale the transformed world velocity vector
-        vec_world[:, :] *= self._arrow_scale_factor
+        vec_world[:, :] *= scale_factor
 
         return vec_world
 
@@ -321,7 +320,7 @@ class VelocityCommandManager(CommandManager):
         color: list[float],
     ):
         # If velocity is zero, don't draw the arrow
-        if not torch.any(vec != 0.0):
+        if torch.all(vec == 0.0):
             return
         try:
             node = self.env.scene.draw_debug_arrow(

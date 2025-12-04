@@ -26,7 +26,7 @@ deprecated_arg_names = [
 T = TypeVar("T")
 
 
-class PositionActionConfig(TypedDict):
+class HybridActionConfig(TypedDict):
     env: GenesisEnv
     actuator_manager: Optional[ActuatorManager]
     scale: Union[float, Dict[str, float]]
@@ -38,18 +38,20 @@ class PositionActionConfig(TypedDict):
     delay_step: int
 
 
-class PositionActionManager(BaseActionManager):
+class HybridActionManager(BaseActionManager):
     """
-    Converts actions to DOF positions, using affine transformations (scale and offset).
+    Converts actions to DOF positions,velocities or forces based on the actuation type, using affine transformations (scale and offset).
 
     .. math::
 
        position = offset + scaling * action
+       velocity = scaling * action
+       force = scaling * action
 
     If `use_default_offset` is `True`, the `offset` will be set to the `default_pos` value for each DOF/joint.
 
     Args:
-        action_config: A PositionActionConfig TypedDict containing all configuration parameters:
+        action_config: A HybridActionConfig TypedDict containing all configuration parameters:
             - env: The environment to manage the DOF actuators for.
             - actuator_manager: The actuator manager which is used to setup and control the DOF joints.
             - scale: How much to scale the action. Defaults to 1.0.
@@ -80,7 +82,7 @@ class PositionActionManager(BaseActionManager):
                     "max_force": 8.0,
                     "entity_attr": "robot"
                 })
-                self.action_manager = PositionActionManager({
+                self.action_manager = HybridActionManager({
                     "env": self,
                     "scale": 0.5,
                     "use_default_offset": True,
@@ -103,7 +105,7 @@ class PositionActionManager(BaseActionManager):
                     "max_force": 8.0,
                     "entity_attr": "robot"
                 })
-                self.action_manager = PositionActionManager({
+                self.action_manager = HybridActionManager({
                     "env": self,
                     "scale": 0.5,
                     "offset": 0.0,
@@ -134,7 +136,7 @@ class PositionActionManager(BaseActionManager):
 
     def __init__(
         self,
-        action_config: PositionActionConfig | None = None,
+        action_config: HybridActionConfig | None = None,
         **kwargs,
     ):
         # Support both old and new API
@@ -237,7 +239,28 @@ class PositionActionManager(BaseActionManager):
         Get the indices of the DOF that are enabled (via joint_names).
         """
         return self._actuator_manager.dofs_idx
-
+    
+    @property
+    def pos_dofs_idx(self) -> list[int]:
+        """
+        Get the indices of the DOF that are position controlled.
+        """
+        return self._actuator_manager.pos_dofs_idx
+    
+    @property
+    def vel_dofs_idx(self) -> list[int]:
+        """
+        Get the indices of the DOF that are velocity controlled.
+        """
+        return self._actuator_manager.vel_dofs_idx
+    
+    @property
+    def force_dofs_idx(self) -> list[int]:
+        """
+        Get the indices of the DOF that are force controlled.
+        """
+        return self._actuator_manager.force_dofs_idx
+    
     @property
     def default_dofs_pos(self) -> torch.Tensor:
         """
@@ -358,22 +381,52 @@ class PositionActionManager(BaseActionManager):
         # Validate actions
         if not self._quiet_action_errors:
             if torch.isnan(actions).any():
-                assert NotImplementedError
                 print(f"ERROR: NaN actions received! Actions: {actions}")
             if torch.isinf(actions).any():
                 print(f"ERROR: Infinite actions received! Actions: {actions}")
-
-        # Process actions
-        actions = actions * self._scale_values + self._offset_values
-        actions = torch.clamp(
-            actions,
+        
+        # Process pos_actions
+        pos_dofs=self._actuator_manager.pos_dofs_idx
+        
+        pos_actions = actions[pos_dofs] * self._scale_values + self._offset_values
+        pos_actions = torch.clamp(
+            pos_actions,
             min=self._clip_values[:, 0],
             max=self._clip_values[:, 1],
         )
 
         # Set target positions
-        self._actuator_manager.control_dofs_position(actions)
+        self._actuator_manager.control_dofs_position(pos_actions)
+        
+        # Process vel_actions
+        vel_dofs=self._actuator_manager.vel_dofs_idx
+        
+        vel_actions = actions[vel_dofs] * self._scale_values + self._offset_values
+        vel_actions = torch.clamp(
+            vel_actions,
+            min=self._clip_values[:, 0],
+            max=self._clip_values[:, 1],
+        )
 
+        # Set target velocities
+        self._actuator_manager.control_dofs_velocity(vel_actions)
+        
+        # Process force_actions
+        force_dofs=self._actuator_manager.force_dofs_idx
+        
+        force_actions = actions[force_dofs] * self._scale_values + self._offset_values
+        force_actions = torch.clamp(
+            force_actions,
+            min=self._clip_values[:, 0],
+            max=self._clip_values[:, 1],
+        )
+
+        # Set target velocities
+        self._actuator_manager.control_dofs_force(force_actions)
+        
+        actions[pos_dofs]=pos_actions
+        actions[vel_dofs]=vel_actions
+        actions[force_dofs]=force_actions
         return actions
 
     """

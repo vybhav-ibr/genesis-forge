@@ -50,7 +50,7 @@ class EntityManager(BaseManager):
 
     Example::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
 
@@ -92,13 +92,13 @@ class EntityManager(BaseManager):
 
         # Buffers
         self._global_gravity = torch.tensor(
-            [0.0, 0.0, -1.0], device=gs.device, dtype=gs.tc_float
+            [0.0, 0.0, -1.0], device=self.env.device, dtype=self.env.float_type
         ).repeat(env.num_envs, 1)
         self._base_pos = torch.zeros(
-            (env.num_envs, 3), device=gs.device, dtype=gs.tc_float
+            (env.num_envs, 3), device=self.env.device, dtype=self.env.float_type
         )
         self._base_quat = torch.zeros(
-            (env.num_envs, 4), device=gs.device, dtype=gs.tc_float
+            (env.num_envs, 4), device=self.env.device, dtype=self.env.float_type
         )
         self._inv_base_quat = torch.zeros_like(self._base_quat)
 
@@ -177,7 +177,7 @@ class EntityManager(BaseManager):
         if not self.enabled:
             return
         if envs_idx is None:
-            envs_idx = torch.arange(self.env.num_envs, device=gs.device)
+            envs_idx = torch.arange(self.env.num_envs, device=self.env.device)
 
         for name, cfg in self.on_reset.items():
             try:

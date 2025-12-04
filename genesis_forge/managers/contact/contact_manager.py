@@ -34,9 +34,9 @@ class ContactManager(BaseManager):
         debug_visualizer: Whether to visualize the contact points.
         debug_visualizer_cfg: The configuration for the contact debug visualizer.
 
-    Example with ManagedEnvironment::
+    Example with GenesisManagedEnvironment::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
 
             # ... Construct scene and other env setup ...
 
@@ -105,7 +105,7 @@ class ContactManager(BaseManager):
 
     Filtering::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
 
@@ -155,7 +155,7 @@ class ContactManager(BaseManager):
         self._local_link_ids = None
         self._with_entity_attr = with_entity_attr
         self._with_links_names = with_links_names
-        self._with_link_ids = torch.empty(0, device=gs.device)
+        self._with_link_ids = torch.empty(0, device=self.env.device)
         self._with_local_link_ids = None
         self._has_with_filter = (
             with_entity_attr is not None or with_links_names is not None
@@ -320,17 +320,17 @@ class ContactManager(BaseManager):
         # Initialize buffers
         link_count = self._link_ids.shape[0]
         self.contacts = torch.zeros(
-            (self.env.num_envs, link_count, 3), device=gs.device
+            (self.env.num_envs, link_count, 3), device=self.env.device
         )
         self.contact_positions = torch.zeros(
-            (self.env.num_envs, link_count, 3), device=gs.device
+            (self.env.num_envs, link_count, 3), device=self.env.device
         )
         self._contact_position_counts = torch.zeros(
-            (self.env.num_envs, link_count), device=gs.device
+            (self.env.num_envs, link_count), device=self.env.device
         )
         if self._track_air_time:
             self.last_air_time = torch.zeros(
-                (self.env.num_envs, link_count), device=gs.device
+                (self.env.num_envs, link_count), device=self.env.device
             )
             self.current_air_time = torch.zeros_like(self.last_air_time)
             self.last_contact_time = torch.zeros_like(self.last_air_time)
@@ -339,7 +339,7 @@ class ContactManager(BaseManager):
     def reset(self, envs_idx: list[int] | None = None):
         super().reset(envs_idx)
         if envs_idx is None:
-            envs_idx = torch.arange(self.env.num_envs, device=gs.device)
+            envs_idx = torch.arange(self.env.num_envs, device=self.env.device)
 
         if not self.enabled:
             return
@@ -400,8 +400,8 @@ class ContactManager(BaseManager):
                     )
 
         return (
-            torch.tensor(ids, device=gs.device),
-            torch.tensor(local_ids, device=gs.device),
+            torch.tensor(ids, device=self.env.device),
+            torch.tensor(local_ids, device=self.env.device),
         )
 
     def _calculate_contact_forces(self):

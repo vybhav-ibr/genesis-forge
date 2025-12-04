@@ -105,6 +105,7 @@ class VideoWrapper(Wrapper):
         logging: bool = True,
     ):
         super().__init__(env)
+        self._device = env.device
         self._is_recording: bool = False
         self._logging: bool = logging
         self._current_step: int = 0
@@ -139,6 +140,10 @@ class VideoWrapper(Wrapper):
 
         os.makedirs(self._out_dir, exist_ok=True)
 
+    @property
+    def device(self) -> str:
+        return self._device
+    
     @property
     def video_length_steps(self) -> int:
         """

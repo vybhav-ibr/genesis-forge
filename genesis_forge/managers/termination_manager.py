@@ -32,9 +32,9 @@ class TerminationManager(BaseManager):
         logging_enabled: Whether to log the termination signals to tensorboard.
         logging_tag: The section tag used to log the termination signals to tensorboard.
 
-    Example with ManagedEnvironment::
+    Example with GenesisManagedEnvironment::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def config(self):
                 self.termination_manager = TerminationManager(
                     self,
@@ -114,7 +114,7 @@ class TerminationManager(BaseManager):
 
         # Buffers
         self._terminated_buf = torch.zeros(
-            env.num_envs, device=gs.device, dtype=torch.bool
+            env.num_envs, device=self.env.device, dtype=torch.bool
         )
         self._truncated_buf = torch.zeros_like(self._terminated_buf)
 

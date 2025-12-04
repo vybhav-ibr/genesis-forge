@@ -75,7 +75,7 @@ class CommandManager(BaseManager):
         self._gamepad_axis_command_buffer = None
 
         num_ranges = len(range) if isinstance(range, dict) else 1
-        self._command = torch.zeros(env.num_envs, num_ranges, device=gs.device)
+        self._command = torch.zeros(env.num_envs, num_ranges, device=self.env.device)
         self._range_idx = {}
         if isinstance(range, dict):
             self._range_idx = {key: i for i, key in enumerate(range.keys())}
@@ -238,7 +238,7 @@ class CommandManager(BaseManager):
         if not self.enabled:
             return
         if env_ids is None:
-            env_ids = torch.arange(self.env.num_envs, device=gs.device)
+            env_ids = torch.arange(self.env.num_envs, device=self.env.device)
         self.resample_command(env_ids)
 
     def observation(self, env: GenesisEnv) -> torch.Tensor:
@@ -267,7 +267,7 @@ class CommandManager(BaseManager):
 
             # Setup gamepad
             gamepad = Gamepad(GAMEPAD_PRODUCT)
-            cmd_buffer = torch.zeros((N_ENVS, 1), device=gs.device)
+            cmd_buffer = torch.zeros((N_ENVS, 1), device=self.env.device)
             def gamepad_controller(_step):
                 a_pressed = "A" in gamepad.state.buttons
                 cmd_buffer[:, 0] = MAX_HEIGHT if a_pressed else MIN_HEIGHT
@@ -356,7 +356,7 @@ class CommandManager(BaseManager):
             "axis_map": axis_map,
         }
         self._gamepad_axis_command_buffer = torch.zeros_like(
-            self._command, device=gs.device
+            self._command, device=self.env.device
         )
 
     def resample_command(self, env_ids: list[int]):
@@ -371,7 +371,7 @@ class CommandManager(BaseManager):
 
         # Resample the command
         for i in range(self._command.shape[1]):
-            buffer = torch.empty(len(env_ids), device=gs.device).uniform_(*ranges[i])
+            buffer = torch.empty(len(env_ids), device=self.env.device).uniform_(*ranges[i])
             self._command[env_ids, i] = buffer
 
     """

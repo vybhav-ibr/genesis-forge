@@ -26,36 +26,29 @@ deprecated_arg_names = [
 T = TypeVar("T")
 
 
-class PositionActionConfig(TypedDict):
+class VelocityActionConfig(TypedDict):
     env: GenesisEnv
     actuator_manager: Optional[ActuatorManager]
     scale: Union[float, Dict[str, float]]
-    offset: Union[float, Dict[str, float]]
     clip: Optional[Union[tuple[float, float], Dict[str, tuple[float, float]]]]
-    use_default_offset: bool
     action_handler: Optional[Callable[[torch.Tensor], None]]
     quiet_action_errors: bool
     delay_step: int
 
 
-class PositionActionManager(BaseActionManager):
+class VelocityActionManager(BaseActionManager):
     """
-    Converts actions to DOF positions, using affine transformations (scale and offset).
+    Converts actions to DOF velocities, using affine transformations (scale).
 
     .. math::
 
-       position = offset + scaling * action
-
-    If `use_default_offset` is `True`, the `offset` will be set to the `default_pos` value for each DOF/joint.
+       velocity = scaling * action
 
     Args:
-        action_config: A PositionActionConfig TypedDict containing all configuration parameters:
+        action_config: A VelocityActionConfig TypedDict containing all configuration parameters:
             - env: The environment to manage the DOF actuators for.
             - actuator_manager: The actuator manager which is used to setup and control the DOF joints.
             - scale: How much to scale the action. Defaults to 1.0.
-            - offset: Offset factor for the action. Defaults to 0.0.
-            - use_default_offset: Whether to use default joint positions configured in the articulation 
-              asset as offset. Defaults to True.
             - clip: Clip the action values to the range. If omitted, the action values will automatically 
               be clipped to the joint limits. Defaults to None.
             - action_handler: Optional custom action handler. Defaults to None.
@@ -80,10 +73,9 @@ class PositionActionManager(BaseActionManager):
                     "max_force": 8.0,
                     "entity_attr": "robot"
                 })
-                self.action_manager = PositionActionManager({
+                self.action_manager = VelocityActionManager({
                     "env": self,
                     "scale": 0.5,
-                    "use_default_offset": True,
                     "actuator_manager": self.actuator_manager,
                 })
 
@@ -103,11 +95,9 @@ class PositionActionManager(BaseActionManager):
                     "max_force": 8.0,
                     "entity_attr": "robot"
                 })
-                self.action_manager = PositionActionManager({
+                self.action_manager = VelocityActionManager({
                     "env": self,
                     "scale": 0.5,
-                    "offset": 0.0,
-                    "use_default_offset": True,
                     "actuator_manager": self.actuator_manager,
                 })
 
@@ -134,7 +124,7 @@ class PositionActionManager(BaseActionManager):
 
     def __init__(
         self,
-        action_config: PositionActionConfig | None = None,
+        action_config: VelocityActionConfig | None = None,
         **kwargs,
     ):
         # Support both old and new API
@@ -144,9 +134,7 @@ class PositionActionManager(BaseActionManager):
                 "env": kwargs.pop("env", None),
                 "actuator_manager": kwargs.pop("actuator_manager", None),
                 "scale": kwargs.pop("scale", 1.0),
-                "offset": kwargs.pop("offset", 0.0),
                 "clip": kwargs.pop("clip", None),
-                "use_default_offset": kwargs.pop("use_default_offset", True),
                 "action_handler": kwargs.pop("action_handler", None),
                 "quiet_action_errors": kwargs.pop("quiet_action_errors", False),
                 "delay_step": kwargs.pop("delay_step", 0),
@@ -158,18 +146,13 @@ class PositionActionManager(BaseActionManager):
             
         super().__init__(env, action_config.get("delay_step", 0))
         
-        self._offset_cfg = ensure_dof_pattern(action_config.get("offset", 0.0))
         self._scale_cfg = ensure_dof_pattern(action_config.get("scale", 1.0))
         self._clip_cfg = ensure_dof_pattern(action_config.get("clip"))
         self._quiet_action_errors = action_config.get("quiet_action_errors", False)
         self._enabled_dof = None
-        self._use_default_offset = action_config.get("use_default_offset", True)
         self._actuator_manager = action_config.get("actuator_manager")
 
         self._dofs_pos_buffer: torch.Tensor = None
-
-        if self._use_default_offset and action_config.get("offset", 0.0) != 0.0:
-            raise ValueError("Cannot set both use_default_offset and offset")
 
         # Deprecated actuator parameters
         deprecated_actuator_args = {
@@ -322,14 +305,6 @@ class PositionActionManager(BaseActionManager):
         if self._scale_cfg is not None:
             self._scale_values = self._get_dof_value_tensor(self._scale_cfg)
 
-        # Offset
-        self._offset_values = None
-        if self._use_default_offset:
-            self._offset_values = self._actuator_manager.default_dofs_pos
-        else:
-            offset = self._offset_cfg if self._offset_cfg is not None else 0.0
-            self._offset_values = self._get_dof_value_tensor(offset)
-
     def step(self, actions: torch.Tensor) -> torch.Tensor:
         """
         Take the incoming actions for this step and handle them.
@@ -358,13 +333,12 @@ class PositionActionManager(BaseActionManager):
         # Validate actions
         if not self._quiet_action_errors:
             if torch.isnan(actions).any():
-                assert NotImplementedError
                 print(f"ERROR: NaN actions received! Actions: {actions}")
             if torch.isinf(actions).any():
                 print(f"ERROR: Infinite actions received! Actions: {actions}")
 
         # Process actions
-        actions = actions * self._scale_values + self._offset_values
+        actions = actions * self._scale_values
         actions = torch.clamp(
             actions,
             min=self._clip_values[:, 0],

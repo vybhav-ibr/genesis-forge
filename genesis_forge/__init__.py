@@ -1,8 +1,8 @@
 from .genesis_env import GenesisEnv, EnvMode
-from .managed_env import ManagedEnvironment
+from .genesis_managed_env import GenesisManagedEnvironment
 
 __all__ = [
     "GenesisEnv",
-    "ManagedEnvironment",
+    "GenesisManagedEnvironment",
     "EnvMode",
 ]

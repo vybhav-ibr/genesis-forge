@@ -37,9 +37,9 @@ class ObservationManager(BaseManager):
         noise: The range of random noise to add to all observations.
         history_len: The number of previous observations to include in the observation.
 
-    Example with ManagedEnvironment::
+    Example with GenesisManagedEnvironment::
 
-        class MyEnv(ManagedEnvironment):
+        class MyEnv(GenesisManagedEnvironment):
             def __init__(self, *args, **kwargs):
                 super().__init__(*args, **kwargs)
 
@@ -204,11 +204,11 @@ class ObservationManager(BaseManager):
         # Fill history buffer
         shape = (self.env.num_envs, single_obs_size)
         self._history = [
-            torch.zeros(shape, device=gs.device) for _ in range(self._history_len)
+            torch.zeros(shape, device=self.env.device) for _ in range(self._history_len)
         ]
         self._history_output = torch.zeros(
             (self.env.num_envs, self._observation_size),
-            device=gs.device,
+            device=self.env.device,
         )
 
     def get_observations(self) -> torch.Tensor:

@@ -224,7 +224,7 @@ class Go2SimpleEnv(ManagedEnvironment):
 
         ##
         # Observations
-        ObservationManager(
+        self.observation_manager = ObservationManager(
             self,
             cfg={
                 "angle_velocity": {

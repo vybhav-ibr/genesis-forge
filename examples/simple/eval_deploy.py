@@ -46,16 +46,14 @@ def get_latest_model(log_dir: str) -> str:
 
 
 def setup_observations(env: Go2SimpleEnv):
-    obs = env.observation_manager.observation_cfg
-
     # Assign a function to each observation that will return real sensor data
+    obs = env.observation_manager.cfg
     obs["angle_velocity"].fn = lambda env: torch.zeros(3)
     obs["linear_velocity"].fn = lambda env: torch.zeros(3)
     obs["projected_gravity"].fn = lambda env: torch.zeros(3)
     obs["dof_position"].fn = lambda env: torch.zeros(12)
     obs["dof_velocity"].fn = lambda env: torch.zeros(12)
-    obs["actions"].fn = lambda env: torch.zeros(12)
-    return obs
+    # No need to update the actions observation, as that will be handled by the environment automatically
 
 
 def main():

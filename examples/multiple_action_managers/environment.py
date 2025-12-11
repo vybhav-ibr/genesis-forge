@@ -138,7 +138,11 @@ class Go2SimpleEnv(ManagedEnvironment):
             kp=20,
             kv=0.5,
         )
-
+        self.hip_action_manager = PositionWithinLimitsActionManager(
+            self,
+            actuator_manager=self.actuator_manager,
+            actuator_filter=[".*_hip_joint"],
+        )
         self.leg_action_manager = PositionActionManager(
             self,
             actuator_manager=self.actuator_manager,
@@ -149,11 +153,6 @@ class Go2SimpleEnv(ManagedEnvironment):
             scale=0.25,
             clip=(-100.0, 100.0),
             use_default_offset=True,
-        )
-        self.hip_action_manager = PositionWithinLimitsActionManager(
-            self,
-            actuator_manager=self.actuator_manager,
-            actuator_filter=[".*_hip_joint"],
         )
 
         ##

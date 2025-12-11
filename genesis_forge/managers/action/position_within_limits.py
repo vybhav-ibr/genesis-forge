@@ -1,6 +1,5 @@
 from __future__ import annotations
 import torch
-from typing import Callable
 
 from genesis_forge.genesis_env import GenesisEnv
 from .position_action_manager import PositionActionManager
@@ -14,7 +13,8 @@ class PositionWithinLimitsActionManager(PositionActionManager):
     Args:
         env: The environment to manage the DOF actuators for.
         actuator_manager: The actuator manager which is used to setup and control the DOF joints.
-        action_handler: A function to handle the actions.
+        actuator_filter: Which joints of the actuator manager that this action manager will control.
+                   These can be full names or regular expressions.
         quiet_action_errors: Whether to quiet action errors.
         delay_step: The number of steps to delay the actions for.
                     This is an easy way to emulate the latency in the system.
@@ -53,17 +53,17 @@ class PositionWithinLimitsActionManager(PositionActionManager):
         self,
         env: GenesisEnv,
         actuator_manager: ActuatorManager | None = None,
-        action_handler: Callable[[torch.Tensor], None] = None,
+        actuator_filter: list[str] | str = ".*",
         quiet_action_errors: bool = False,
         delay_step: int = 0,
         **kwargs,
     ):
         super().__init__(
             env,
-            action_handler=action_handler,
+            actuator_manager=actuator_manager,
+            actuator_filter=actuator_filter,
             quiet_action_errors=quiet_action_errors,
             delay_step=delay_step,
-            actuator_manager=actuator_manager,
             **kwargs,
         )
 
@@ -75,7 +75,9 @@ class PositionWithinLimitsActionManager(PositionActionManager):
         """
         Builds the manager and initialized all the buffers.
         """
-        lower, upper = self._actuator_manager.get_dofs_limits()
+        super().build()
+
+        lower, upper = self.actuators.get_dofs_limits(self.dofs_idx)
         lower = lower.unsqueeze(0).expand(self.env.num_envs, -1)
         upper = upper.unsqueeze(0).expand(self.env.num_envs, -1)
         self._offset = (upper + lower) * 0.5
@@ -94,9 +96,9 @@ class PositionWithinLimitsActionManager(PositionActionManager):
         """
         # Convert the action from -1 to 1, to absolute position within the actuator limits
         actions.clamp_(-1.0, 1.0)
-        self._actions = actions * self._scale + self._offset
+        actions = actions * self._scale + self._offset
 
         # Set target positions
-        self._actuator_manager.control_dofs_position(self._actions)
+        self._actuator_manager.control_dofs_position(actions, self.dofs_idx)
 
-        return self._actions
+        return actions

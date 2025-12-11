@@ -148,6 +148,13 @@ class ActuatorManager(BaseManager):
     """
 
     @property
+    def dofs(self) -> dict[str, int]:
+        """
+        Get the names of the joints that are enabled, in the order of the DOF indices.
+        """
+        return self._dofs
+
+    @property
     def num_dofs(self) -> int:
         """
         Get the number of configured DOFs.
@@ -175,31 +182,33 @@ class ActuatorManager(BaseManager):
         """
         return self._values.get("default_pos", {}).get("buffer", None)
 
-    @property
-    def join_names(self) -> list[str]:
-        """
-        Get the names of the joints that are enabled, in the order of the DOF indices.
-        """
-        return list[str](self._dofs.keys())
-
     """
     Actuator handlers
     """
 
-    def get_dofs_position(self, noise: float = 0.0):
+    def get_dofs_position(self, noise: float = 0.0, dofs_idx: list[int] | None = None):
         """
         Return the current position of the configured DOFs.
         This is a wrapper for `RigidEntity.get_dofs_position`.
 
         Args:
             noise: The maximum amount of random noise to add to the position values returned.
+            dofs_idx: The indices of the DOFs to get the position for. If None, all the DOFs of this actuator manager are used.
+
+        Returns:
+            The position of the enabled DOFs.
         """
-        pos = self._robot.get_dofs_position(self.dofs_idx)
+        pos = self._robot.get_dofs_position(dofs_idx or self.dofs_idx)
         if noise > 0.0:
             pos = self._add_random_noise(pos, noise)
         return pos
 
-    def get_dofs_velocity(self, noise: float = 0.0, clip: tuple[float, float] = None):
+    def get_dofs_velocity(
+        self,
+        noise: float = 0.0,
+        clip: tuple[float, float] = None,
+        dofs_idx: list[int] | None = None,
+    ):
         """
         Return the current velocity of the configured DOFs.
         This is a wrapper for `RigidEntity.get_dofs_velocity`.
@@ -207,15 +216,24 @@ class ActuatorManager(BaseManager):
         Args:
             noise: The maximum amount of random noise to add to the velocity values returned.
             clip: Clip the velocity returned.
+            dofs_idx: The indices of the DOFs to get the velocity for. If None, all the DOFs of this actuator manager are used.
+
+        Returns:
+            The velocity of the enabled DOFs.
         """
-        vel = self._robot.get_dofs_velocity(self.dofs_idx)
+        vel = self._robot.get_dofs_velocity(dofs_idx or self.dofs_idx)
         if noise > 0.0:
             vel = self._add_random_noise(vel, noise)
         if clip is not None:
             vel = vel.clamp(**clip)
         return vel
 
-    def get_dofs_force(self, noise: float = 0.0, clip_to_max_force: bool = False):
+    def get_dofs_force(
+        self,
+        noise: float = 0.0,
+        clip_to_max_force: bool = False,
+        dofs_idx: list[int] | None = None,
+    ):
         """
         Return the force experienced by the configured DOFs.
         This is a wrapper for `RigidEntity.get_dofs_force`.
@@ -223,30 +241,38 @@ class ActuatorManager(BaseManager):
         Args:
             noise: The maximum amount of random noise to add to the force values returned.
             clip_to_max_force: Clip the force returned to the maximum force of the actuators.
+            dofs_idx: The indices of the DOFs to get the force for. If None, all the DOFs of this actuator manager are used.
 
         Returns:
             The force experienced by the enabled DOFs.
         """
-        force = self._robot.get_dofs_force(self.dofs_idx)
+        force = self._robot.get_dofs_force(dofs_idx or self.dofs_idx)
         if noise > 0.0:
             force = self._add_random_noise(force, noise)
         if clip_to_max_force:
-            [lower, upper] = self._robot.get_dofs_force_range(self.dofs_idx)
+            [lower, upper] = self._robot.get_dofs_force_range(dofs_idx or self.dofs_idx)
             force = force.clamp(lower, upper)
         return force
 
-    def get_dofs_limits(self) -> tuple[torch.Tensor, torch.Tensor]:
+    def get_dofs_limits(
+        self, dofs_idx: list[int] | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
         """
         Return the limits of the configured DOFs.
         This is a wrapper for `RigidEntity.get_dofs_limit`.
+
+        Args:
+            dofs_idx: The indices of the DOFs to get the limits for. If None, all the DOFs of this actuator manager are used.
 
         Returns:
             A tuple of two tensors, the first is the lower limits and the second is the upper limits.
             Each tensor is of shape (num_envs, num_dofs).
         """
-        return self._robot.get_dofs_limit(self.dofs_idx)
+        return self._robot.get_dofs_limit(dofs_idx or self.dofs_idx)
 
-    def set_dofs_position(self, position: torch.Tensor):
+    def set_dofs_position(
+        self, position: torch.Tensor, dofs_idx: list[int] | None = None
+    ):
         """
         Set the position of the configured DOFs.
         This is a wrapper for `RigidEntity.set_dofs_position`.
@@ -254,10 +280,13 @@ class ActuatorManager(BaseManager):
         Args:
             position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
                       (see: `dofs_names` and `dofs_idx` properties).
+            dofs_idx: The indices of the DOFs to control. If None, all the DOFs of this actuator manager are used.
         """
-        self._robot.set_dofs_position(position, self.dofs_idx)
+        self._robot.set_dofs_position(position, dofs_idx or self.dofs_idx)
 
-    def control_dofs_position(self, position: torch.Tensor):
+    def control_dofs_position(
+        self, position: torch.Tensor, dofs_idx: list[int] | None = None
+    ):
         """
         Control the position of the configured DOFs.
         This is a wrapper for `RigidEntity.control_dofs_position`.
@@ -265,8 +294,9 @@ class ActuatorManager(BaseManager):
         Args:
             position: The position to set the DOFs to. The indices of this tensor should match the configured DOFs
                       (see: `dofs_names` and `dofs_idx` properties).
+            dofs_idx: The indices of the DOFs to control. If None, all the DOFs of this actuator manager are used.
         """
-        self._robot.control_dofs_position(position, self.dofs_idx)
+        self._robot.control_dofs_position(position, dofs_idx or self.dofs_idx)
 
     """
     Lifecycle operations

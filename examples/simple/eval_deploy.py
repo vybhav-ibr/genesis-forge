@@ -49,12 +49,12 @@ def setup_observations(env: Go2SimpleEnv):
     obs = env.observation_manager.observation_cfg
 
     # Assign a function to each observation that will return real sensor data
-    obs["angle_velocity"]["fn"] = lambda env: torch.zeros(3)
-    obs["linear_velocity"]["fn"] = lambda env: torch.zeros(3)
-    obs["projected_gravity"]["fn"] = lambda env: torch.zeros(3)
-    obs["dof_position"]["fn"] = lambda env: torch.zeros(12)
-    obs["dof_velocity"]["fn"] = lambda env: torch.zeros(12)
-    obs["actions"]["fn"] = lambda env: torch.zeros(12)
+    obs["angle_velocity"].fn = lambda env: torch.zeros(3)
+    obs["linear_velocity"].fn = lambda env: torch.zeros(3)
+    obs["projected_gravity"].fn = lambda env: torch.zeros(3)
+    obs["dof_position"].fn = lambda env: torch.zeros(12)
+    obs["dof_velocity"].fn = lambda env: torch.zeros(12)
+    obs["actions"].fn = lambda env: torch.zeros(12)
     return obs
 
 

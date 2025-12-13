@@ -12,6 +12,8 @@ from genesis_forge.genesis_env import GenesisEnv
 from genesis_forge.managers import (
     ActuatorManager,
     CommandManager,
+    PositionCommandManager,
+    PoseCommandManager,
     VelocityCommandManager,
     PositionActionManager,
     ContactManager,
@@ -287,6 +289,7 @@ def action_rate_l2(env: GenesisEnv) -> torch.Tensor:
 Position Command Rewards
 """
 
+
 def commonad_tracking_base_position(
     env: GenesisEnv,
     command: torch.Tensor = None,
@@ -336,9 +339,11 @@ def commonad_tracking_base_position(
     base_pos_error= torch.sum(torch.square(command - pos), dim=1)
     return torch.square(-base_pos_error/sensitivity)
 
+
 """
 Pose Command Rewards
 """
+
 
 def command_tracking_base_pose(
     env: GenesisEnv,

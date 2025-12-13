@@ -2,13 +2,13 @@ from __future__ import annotations
 import torch
 
 from genesis_forge.genesis_env import GenesisEnv
-from .position_action_manager import PositionActionManager
+from .force_action_manager import ForceActionManager
 from genesis_forge.managers.actuator import ActuatorManager
 
 
-class PositionWithinLimitsActionManager(PositionActionManager):
+class ForceWithinLimitsActionManager(ForceActionManager):
     """
-    This is similar to `PositionActionManager` but converts actions from the range -1.0 - 1.0 to DOF positions within the limits of the actuators.
+    This is similar to `ForceActionManager` but converts actions from the range -1.0 - 1.0 to DOF forces within the limits of the actuators.
 
     Args:
         env: The environment to manage the DOF actuators for.
@@ -42,7 +42,7 @@ class PositionWithinLimitsActionManager(PositionActionManager):
                     kv={".*": 0.5},
                     max_force={".*": 8.0},
                 )
-                self.action_manager = PositionalActionManager(
+                self.action_manager = ForcealActionManager(
                     self,
                     actuator_manager=self.actuator_manager,
                 )
@@ -77,7 +77,7 @@ class PositionWithinLimitsActionManager(PositionActionManager):
         """
         super().build()
 
-        lower, upper = self.actuators.get_dofs_limits(self.dofs_idx)
+        lower, upper = self.actuators.get_dofs_force_limits(self.dofs_idx)
         lower = lower.unsqueeze(0).expand(self.env.num_envs, -1)
         upper = upper.unsqueeze(0).expand(self.env.num_envs, -1)
         self._offset = (upper + lower) * 0.5
@@ -85,7 +85,7 @@ class PositionWithinLimitsActionManager(PositionActionManager):
 
     def handle_actions(self, actions: torch.Tensor) -> torch.Tensor:
         """
-        Converts the actions to position commands, and send them to the DOF actuators.
+        Converts the actions to force commands, and send them to the DOF actuators.
         Override this function if you want to change the action handling logic.
 
         Args:
@@ -94,11 +94,11 @@ class PositionWithinLimitsActionManager(PositionActionManager):
         Returns:
             The processed and handled actions.
         """
-        # Convert the action from -1 to 1, to absolute position within the actuator limits
+        # Convert the action from -1 to 1, to absolute force within the actuator limits
         actions.clamp_(-1.0, 1.0)
         actions = actions * self._scale + self._offset
 
-        # Set target positions
-        self.actuators.control_dofs_position(actions, self.dofs_idx)
+        # Set target forces
+        self.actuators.control_dofs_force(actions, self.dofs_idx)
 
         return actions

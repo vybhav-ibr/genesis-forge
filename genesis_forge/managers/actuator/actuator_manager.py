@@ -270,6 +270,22 @@ class ActuatorManager(BaseManager):
         """
         return self._robot.get_dofs_limit(dofs_idx or self.dofs_idx)
 
+    def get_dofs_force_limits(
+        self, dofs_idx: list[int] | None = None
+    ) -> tuple[torch.Tensor, torch.Tensor]:
+        """
+        Return the force limits of the configured DOFs.
+        This is a wrapper for `RigidEntity.get_dofs_force_limit`.
+
+        Args:
+            dofs_idx: The indices of the DOFs to get the force limits for. If None, all the DOFs of this actuator manager are used.
+
+        Returns:
+            A tuple of two tensors, the first is the lower force limits and the second is the force upper limits.
+            Each tensor is of shape (num_envs, num_dofs).
+        """
+        return self._robot.get_dofs_force_range(dofs_idx or self.dofs_idx)
+
     def set_dofs_position(
         self, position: torch.Tensor, dofs_idx: list[int] | None = None
     ):
